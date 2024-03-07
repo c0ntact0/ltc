@@ -403,7 +403,7 @@ def apply_ffmpeg_rewrap(reel:str):
                 ).run()
     )
     os.remove(video_filename_renamed)
-    pprint(ffmpeg.probe(video_filename))
+    #pprint(ffmpeg.probe(video_filename))
     
     print("Rewrap applied")
     
