@@ -27,7 +27,6 @@ previous_cam = None
 current_cam = None
 edl_path = os.path.expanduser("~")
 display_timeline_tc=False
-format=".mxf"
 
 sources_handlers = []
 
@@ -42,7 +41,6 @@ def audio_device_changed(props,p,settings):
         info = "Sample Rate: " + str(int(audio_device.get('defaultSampleRate')))
     else:
         info = "No info available"
-    #obs.obs_property_set_description(p,info)
     obs.obs_data_set_string(settings,'info',info)
     return True
 
@@ -102,6 +100,8 @@ def script_properties():
 
     obs.obs_properties_add_path(props,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
 
+    dock_state = obs.obs_properties_add_bool(props,'dock_state',"Apply Dock State")
+    obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
 
     # CALLBACKS
     obs.obs_property_set_modified_callback(list_devices, audio_device_changed)
@@ -110,6 +110,7 @@ def script_properties():
     return props
 
 def script_defaults(settings):
+    print("script_defaults")
 
     obs.obs_data_set_default_string(settings, "audio_device", "")
     obs.obs_data_set_default_string(settings, "info", "")
@@ -124,10 +125,13 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings,'timeline_start',"00:00:00:00")
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
     obs.obs_data_set_default_string(settings,'edl_path',os.path.expanduser("~"))
+    obs.obs_data_set_default_bool(settings,'dock_state',True)
 
 
 def script_update(settings):
     global audio_device,fps,source_display,sources_cams,timeline_start,edl_path,current_cam,display_timeline_tc
+    print("script_update")
+
     audio_device = get_audio_device_from_properties(settings)
     fps = obs.obs_data_get_int(settings,'fps')
     source_display = obs.obs_data_get_string(settings,'source_display')
@@ -145,7 +149,6 @@ def script_update(settings):
     edl_path = obs.obs_data_get_string(settings,'edl_path')
     current_cam = get_current_cam_name()
     print(obs.obs_frontend_get_current_profile())
-
 
 def add_souces_handlers():
     global sources_handlers,sources_cams
@@ -173,14 +176,19 @@ def script_tick(seconds):
     process_tc(lock)
 
 def script_load(settings):
+    if obs.obs_data_get_bool(settings,'dock_state'):
+        config = obs.obs_frontend_get_global_config()
+        obs.config_set_string(config,"BasicWindow","DockState","AAAA/wAAAAD9AAAAAQAAAAMAAAQAAAABAfwBAAAABvsAAAAUAHMAYwBlAG4AZQBzAEQAbwBjAGsBAAAAAAAAASwAAACgAP////sAAAAWAHMAbwB1AHIAYwBlAHMARABvAGMAawEAAAEwAAABLAAAAKAA////+wAAABIAbQBpAHgAZQByAEQAbwBjAGsBAAACYAAAAaAAAADeAP////sAAAAeAHQAcgBhAG4AcwBpAHQAaQBvAG4AcwBEAG8AYwBrAAAAAx4AAADiAAAAnAD////7AAAAGABjAG8AbgB0AHIAbwBsAHMARABvAGMAawAAAALKAAABNgAAAJ4A////+wAAABIAcwB0AGEAdABzAEQAbwBjAGsCAAACYgAAAdcAAAK8AAAAyAAABAAAAAFLAAAABAAAAAQAAAAIAAAACPwAAAAA")
+
     obs.obs_frontend_add_event_callback(on_frontend_event)
 
-
 def script_unload():
-    global tc_running,tc_stream,tcObj,audio
+    global tc_running,tc_stream,tcObj,edlObj,audio
+    del tcObj
+    del edlObj
     if tc_running:
         tc_stream.close()
-        tcObj = None
+
     if audio:
         audio.terminate()
 
@@ -189,6 +197,12 @@ def on_frontend_event(e):
 
     if e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTING:
         print("Recording Starting...")
+        if not tc_running:
+            print("TC it's not running")
+            obs.obs_frontend_recording_stop()
+            time.sleep(1)
+            return
+
         edlObj = Edl()
         config = obs.obs_frontend_get_profile_config()
         obs.config_set_string(config, "Output","FilenameFormatting", edlObj.date_string)
@@ -235,14 +249,14 @@ def populate_list_property_with_devices_names(list_property):
     obs.obs_property_list_add_string(list_property, "", "")
     for device in audio_devices:
       obs.obs_property_list_add_string(list_property, device.get('name'), str(device.get('index')))
-    obs.source_list_release(audio_devices)
+    #obs.source_list_release(audio_devices)
 
 def populate_list_property_with_fps(list_property):
     fps_list = [24,25,30]
     obs.obs_property_list_clear(list_property)
     for rate in fps_list:
         obs.obs_property_list_add_int(list_property,str(rate),rate)
-    obs.source_list_release(fps_list)
+    #obs.source_list_release(fps_list)
 
 def populate_list_property_with_display_sources(list_property):
     sources = obs.obs_enum_sources()
@@ -390,10 +404,11 @@ def process_tc_display(tc_string):
 
 def apply_ffmpeg_rewrap(reel:str):
     config = obs.obs_frontend_get_profile_config()
+    ff_extension = "." +  obs.config_get_string(config,"AdvOut","FFExtension")
     #print(obs.config_get_string(config, "Output", "FilenameFormatting") or "")
     video_path = obs.config_get_string(config, "AdvOut", "RecFilePath") or None
-    video_filename = os.path.join(video_path,reel + format)
-    video_filename_renamed = os.path.join(video_path,reel + "_old" + format)
+    video_filename = os.path.join(video_path,reel + ff_extension)
+    video_filename_renamed = os.path.join(video_path,reel + "_old" + ff_extension)
     os.rename(video_filename,video_filename_renamed)
     time.sleep(0.5)
     (
