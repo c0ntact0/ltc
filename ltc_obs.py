@@ -23,10 +23,12 @@ audio_device = {}
 fps=24
 source_display=None
 sources_cams = []
+source_playout= None
 previous_cam = None
 current_cam = None
 edl_path = os.path.expanduser("~")
 display_timeline_tc=False
+current_video_file=None
 
 sources_handlers = []
 
@@ -91,9 +93,13 @@ def script_properties():
 
     list_sources_display = obs.obs_properties_add_list(props,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_display_sources(list_sources_display)
+
     obs.obs_properties_add_bool(props,'display_tmeline_tc',"Use Timeline TC")
     
     obs.obs_properties_add_editable_list(props,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"","")
+
+    list_source_playout = obs.obs_properties_add_list(props,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    populate_list_property_with_sources(list_source_playout,'ffmpeg_source')
 
     timeline_start = obs.obs_properties_add_text(props,'timeline_start',"Timeline Start Hour",obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_text(props,'timeline_start_info',"",obs.OBS_TEXT_INFO)
@@ -121,6 +127,7 @@ def script_defaults(settings):
     obs.obs_data_set_default_array(settings, "sources_cams", sources_t)
     obs.obs_data_set_default_int(settings,'fps',24)
     obs.obs_data_set_default_string(settings, "source_display", "")
+    obs.obs_data_set_default_string(settings, "source_playout", "")
     obs.obs_data_set_default_bool(settings,'display_tmeline_tc',False)
     obs.obs_data_set_default_string(settings,'timeline_start',"00:00:00:00")
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
@@ -129,12 +136,13 @@ def script_defaults(settings):
 
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,timeline_start,edl_path,current_cam,display_timeline_tc
+    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc
     print("script_update")
 
     audio_device = get_audio_device_from_properties(settings)
     fps = obs.obs_data_get_int(settings,'fps')
     source_display = obs.obs_data_get_string(settings,'source_display')
+    source_playout = obs.obs_data_get_string(settings,'source_playout')
     display_timeline_tc = obs.obs_data_get_bool(settings,'display_tmeline_tc')
     sources_cams = array_t_to_list(obs.obs_data_get_array(settings,"sources_cams"))
     add_souces_handlers()
@@ -197,12 +205,6 @@ def on_frontend_event(e):
 
     if e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTING:
         print("Recording Starting...")
-        if not tc_running:
-            print("TC it's not running")
-            obs.obs_frontend_recording_stop()
-            time.sleep(1)
-            return
-
         edlObj = Edl()
         config = obs.obs_frontend_get_profile_config()
         obs.config_set_string(config, "Output","FilenameFormatting", edlObj.date_string)
@@ -225,6 +227,7 @@ def record_control(probs,bt_rec):
         obs.obs_property_set_enabled(bt_tc,True)
 
     else:
+        set_current_scene("RECORD") #TODO: escolher no script
         if not tc_running:
             run_tc(probs,bt_rec)
             time.sleep(1)
@@ -269,13 +272,19 @@ def populate_list_property_with_display_sources(list_property):
             obs.obs_property_list_add_string(list_property, name, name)
     obs.source_list_release(sources)
 
-def populate_list_property_with_sources(list_property):
+def populate_list_property_with_sources(list_property,types:list=None, show_type:bool=False):
     sources = obs.obs_enum_sources()
     obs.obs_property_list_clear(list_property)
     obs.obs_property_list_add_string(list_property, "", "")
     for source in sources:
-        name = obs.obs_source_get_name(source)
-        obs.obs_property_list_add_string(list_property, name, to_data_t(name))
+        source_id = obs.obs_source_get_unversioned_id(source)
+        if (types and source_id in types) or not types:
+            name = obs.obs_source_get_name(source)
+            display_name = name
+            #print(name,source_id)
+            if show_type:
+                display_name+=" [" + source_id + "]"
+            obs.obs_property_list_add_string(list_property, display_name, name)
     obs.source_list_release(sources)
 
 def get_sceneitem_from_source_name_in_current_scene(name):
@@ -310,6 +319,14 @@ def get_current_cam_name():
 
 
     return None
+
+def set_current_scene(scene_name):
+        scenes = obs.obs_frontend_get_scenes()
+        for scene in scenes:
+            name = obs.obs_source_get_name(scene)
+            if name == scene_name:
+                obs.obs_frontend_set_current_scene(scene)
+        obs.source_list_release(scenes)
 
 # OBS UTIL FUNCTIONS
 def from_data_t(data_t):
@@ -402,7 +419,23 @@ def process_tc_display(tc_string):
         obs.obs_data_release(settings)
         obs.obs_source_release(source_txt)
 
+def set_playout_source(filename:str):
+    global source_playout
+    source = obs.obs_get_source_by_name(source_playout)
+    if source:
+        settings = obs.obs_data_create()
+        #settings = obs.obs_source_get_settings(source)
+        #pprint(obs.obs_data_get_json(settings))
+        obs.obs_data_set_bool(settings, "is_local_file", True)
+        obs.obs_data_set_string(settings, "local_file", filename
+                                )
+        obs.obs_source_update(source, settings)
+
+        obs.obs_data_release(settings)
+        obs.obs_source_release(source)
+
 def apply_ffmpeg_rewrap(reel:str):
+    global current_video_file
     config = obs.obs_frontend_get_profile_config()
     ff_extension = "." +  obs.config_get_string(config,"AdvOut","FFExtension")
     #print(obs.config_get_string(config, "Output", "FilenameFormatting") or "")
@@ -418,9 +451,13 @@ def apply_ffmpeg_rewrap(reel:str):
                 ).run()
     )
     os.remove(video_filename_renamed)
+    current_video_file=video_filename
     #pprint(ffmpeg.probe(video_filename))
     
     print("Rewrap applied")
+
+    set_playout_source(video_filename)
+
     
 def process_tc(lock):
     global current_tc,previous_cam,current_cam,timeline_start, current_timeline_frame,fps,edlObj,edl_path,display_timeline_tc,clip_tc
