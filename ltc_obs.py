@@ -94,15 +94,16 @@ def script_properties():
     list_sources_display = obs.obs_properties_add_list(props,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_display_sources(list_sources_display)
 
-    obs.obs_properties_add_bool(props,'display_tmeline_tc',"Use Timeline TC")
+    display_tmeline_tc = obs.obs_properties_add_bool(props,'display_tmeline_tc',"Use Timeline TC")
+    obs.obs_property_set_long_description(display_tmeline_tc,"Use timeline TC when recording. Display the TC when recording only.")
+    timeline_start = obs.obs_properties_add_text(props,'timeline_start',"Timeline Start TC",obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(props,'timeline_start_info',"",obs.OBS_TEXT_INFO)
     
     obs.obs_properties_add_editable_list(props,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"","")
 
     list_source_playout = obs.obs_properties_add_list(props,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_sources(list_source_playout,'ffmpeg_source')
 
-    timeline_start = obs.obs_properties_add_text(props,'timeline_start',"Timeline Start Hour",obs.OBS_TEXT_DEFAULT)
-    obs.obs_properties_add_text(props,'timeline_start_info',"",obs.OBS_TEXT_INFO)
 
     obs.obs_properties_add_path(props,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
 
