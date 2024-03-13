@@ -16,23 +16,24 @@ edlObj = None
 tc_stream = None
 tc_running = False
 current_tc = (0,0,0,0)
-clip_tc="00:00:00:00"
-timeline_start = 0
+clip_tc="00:00:00:00" # clip (file) start TC. 
+timeline_start = 0 # timeline TC start frame
 current_timeline_frame = 0
-audio_device = {}
-fps=24
-source_display=None
-sources_cams = []
-source_playout= None
-previous_cam = None
+audio_device = {} # current pyaudio device dict
+fps=24 # TC frame rate
+source_display=None # OBS source to display the TC
+sources_cams = [] # OBS sources used as cam channels
+source_playout= None # OBS source used for playout
+previous_cam = None # previous visible (selected) camera
 current_cam = None
-edl_path = os.path.expanduser("~")
-display_timeline_tc=False
-current_video_file=None
+edl_path = os.path.expanduser("~") # path to write the EDL files
+display_timeline_tc=False # Use the timeline TC insted of LTC 
+current_video_file=None # last video file recorded
+clipname = None
 
-sources_handlers = []
+sources_handlers = [] # handlers to signal the cam souces visibility
 
-lock = threading.Lock()
+lock = threading.Lock() # lock for the LTC process thread
 
 # OBS CALLBACKS
 def audio_device_changed(props,p,settings):
@@ -77,37 +78,45 @@ def script_properties():
     global edl_path
     print("script_properties")
     props = obs.obs_properties_create()
-    obs.obs_properties_add_button(props,'button_record_control',"Start Recording",lambda props,prop: True if record_control(props,prop) else True)
-    obs.obs_properties_add_button(props,"button_run_tc","Start LTC capture",lambda props,prop: True if run_tc(props,prop) else True)
+    operation_group = obs.obs_properties_create()
+    config_group = obs.obs_properties_create()
 
-    list_devices = obs.obs_properties_add_list(props,"audio_device","Device name",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    obs.obs_properties_add_group(props,'operation_group',"Operation",obs.OBS_GROUP_NORMAL,operation_group)
+    obs.obs_properties_add_group(props,'config_group',"Configuration",obs.OBS_GROUP_NORMAL,config_group)
+
+    obs.obs_properties_add_button(operation_group,'button_record_control',"Start Recording",lambda props,prop: True if record_control(props,prop) else True)
+    clipname = obs.obs_properties_add_text(operation_group,'clipname',"Clipname",obs.OBS_TEXT_DEFAULT)
+
+    obs.obs_properties_add_button(config_group,"button_run_tc","Start LTC capture",lambda props,prop: True if run_tc(props,prop) else True)
+
+    list_devices = obs.obs_properties_add_list(config_group,"audio_device","Device name",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_devices_names(list_devices)
     
-    obs.obs_properties_add_button(props, "button_refresh_devices", "Refresh list of devices",
+    obs.obs_properties_add_button(config_group, "button_refresh_devices", "Refresh list of devices",
     lambda props,prop: True if populate_list_property_with_devices_names(list_devices) else True)
 
-    obs.obs_properties_add_text(props, "info", "", obs.OBS_TEXT_INFO)
+    obs.obs_properties_add_text(config_group, "info", "", obs.OBS_TEXT_INFO)
 
-    list_fps = obs.obs_properties_add_list(props,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
+    list_fps = obs.obs_properties_add_list(config_group,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_fps(list_fps)
 
-    list_sources_display = obs.obs_properties_add_list(props,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    list_sources_display = obs.obs_properties_add_list(config_group,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_display_sources(list_sources_display)
 
-    display_tmeline_tc = obs.obs_properties_add_bool(props,'display_tmeline_tc',"Use Timeline TC")
+    display_tmeline_tc = obs.obs_properties_add_bool(config_group,'display_tmeline_tc',"Use Timeline TC")
     obs.obs_property_set_long_description(display_tmeline_tc,"Use timeline TC when recording. Display the TC when recording only.")
-    timeline_start = obs.obs_properties_add_text(props,'timeline_start',"Timeline Start TC",obs.OBS_TEXT_DEFAULT)
-    obs.obs_properties_add_text(props,'timeline_start_info',"",obs.OBS_TEXT_INFO)
+    timeline_start = obs.obs_properties_add_text(config_group,'timeline_start',"Timeline Start TC",obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(config_group,'timeline_start_info',"",obs.OBS_TEXT_INFO)
     
-    obs.obs_properties_add_editable_list(props,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"","")
+    obs.obs_properties_add_editable_list(config_group,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"","")
 
-    list_source_playout = obs.obs_properties_add_list(props,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    list_source_playout = obs.obs_properties_add_list(config_group,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_sources(list_source_playout,'ffmpeg_source')
 
 
-    obs.obs_properties_add_path(props,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
+    obs.obs_properties_add_path(config_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
 
-    dock_state = obs.obs_properties_add_bool(props,'dock_state',"Apply Dock State")
+    dock_state = obs.obs_properties_add_bool(config_group,'dock_state',"Apply Dock State")
     obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
 
     # CALLBACKS
@@ -121,6 +130,7 @@ def script_defaults(settings):
 
     obs.obs_data_set_default_string(settings, "audio_device", "")
     obs.obs_data_set_default_string(settings, "info", "")
+    obs.obs_data_set_default_string(settings, "clipname", "")
     sources = obs.obs_enum_sources()
     sources_names = [obs.obs_source_get_name(source) for source in sources]
     sources_t = list_to_array_t(sources_names)
@@ -137,9 +147,9 @@ def script_defaults(settings):
 
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc
+    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname
     print("script_update")
-
+    clipname = obs.obs_data_get_string(settings,'clipname')
     audio_device = get_audio_device_from_properties(settings)
     fps = obs.obs_data_get_int(settings,'fps')
     source_display = obs.obs_data_get_string(settings,'source_display')
@@ -206,7 +216,7 @@ def on_frontend_event(e):
 
     if e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTING:
         print("Recording Starting...")
-        edlObj = Edl()
+        edlObj = Edl(clipname)
         config = obs.obs_frontend_get_profile_config()
         obs.config_set_string(config, "Output","FilenameFormatting", edlObj.date_string)
         #edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_timeline_tc_string)
@@ -448,7 +458,7 @@ def apply_ffmpeg_rewrap(reel:str):
     (
         ffmpeg.input(video_filename_renamed)
         .output(video_filename,c='copy',timecode=clip_tc,
-                movflags='use_metadata_flags',map_metadata=0,metadata='"Reel='+reel+'"'
+                movflags='use_metadata_flags',map_metadata=0,metadata='"Comments='+reel+'"'
                 ).run()
     )
     os.remove(video_filename_renamed)
@@ -461,7 +471,7 @@ def apply_ffmpeg_rewrap(reel:str):
 
     
 def process_tc(lock):
-    global current_tc,previous_cam,current_cam,timeline_start, current_timeline_frame,fps,edlObj,edl_path,display_timeline_tc,clip_tc
+    global current_tc,previous_cam,current_cam,timeline_start, current_timeline_frame,fps,edlObj,edl_path,display_timeline_tc,clip_tc,clipname
     with lock:
         if tc_running:
             this_tc = current_tc
@@ -507,12 +517,12 @@ def process_tc(lock):
                         edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_tc_string)
                         #pprint(edlObj.edl)
                     elif not new_cam and not recording and edlObj.cut_counter > 0:
-                        reel = edlObj.date_string
+                        file_reel = edlObj.date_string
                         #edlObj.add_cut_out(mark_tc_string,mark_timeline_tc_string)
                         edlObj.add_cut_out(mark_tc_string,mark_tc_string)
-                        edlObj.save_avid_edl(edl_path)
+                        edlObj.save_avid_edl(edl_path,file_reel+'.edl',clipname)
                         edlObj = None
-                        t = threading.Thread(target=apply_ffmpeg_rewrap,args=(reel,))
+                        t = threading.Thread(target=apply_ffmpeg_rewrap,args=(file_reel,))
                         t.start()
                         print("Last cut")
                         #pprint(edlObj.edl)
