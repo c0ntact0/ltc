@@ -16,7 +16,7 @@
 // Using no PWM pins
 // Using PWM pins
 byte cams[CAMS] = {2,4,7,8};
-byte leds[CAMS] = {3,5,6,9}
+byte leds[CAMS] = {3,5,6,9};
 byte states[CAMS] = {0,0,0,0};
 byte currentCam = 0;
 
@@ -25,8 +25,10 @@ void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
   // make the pushbutton's pin an input:
-  for (int i = 0;i < sizeof(cams);i++) {
+  for (int i = 0;i < CAMS;i++) {
     pinMode(cams[i],INPUT);
+    pinMode(leds[i],OUTPUT);
+    digitalWrite(leds[i],states[i]);
   }
 }
 
@@ -52,6 +54,10 @@ void stateMachine() {
       if (states[i] == 1 && currentCam != newCam && pressedCams == 0) {
         pressedCams++;
         currentCam = newCam;
+        for (int l = 0;l < CAMS;l++) {
+
+          digitalWrite(leds[l],states[l]);
+        }
         Serial.print(currentCam);
       }
     
