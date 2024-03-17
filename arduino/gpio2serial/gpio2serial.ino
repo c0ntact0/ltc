@@ -8,10 +8,16 @@
   https://www.arduino.cc/en/Tutorial/BuiltInExamples/DigitalReadSerial
 */
 #include <util/atomic.h>
+
+#define CAMS 4
+
+
 // digital pin 2 has a pushbutton attached to it. Give it a name:
 // Using no PWM pins
-byte cams[4] = {2,4,7,8};
-byte states[4] = {0,0,0,0};
+// Using PWM pins
+byte cams[CAMS] = {2,4,7,8};
+byte leds[CAMS] = {3,5,6,9}
+byte states[CAMS] = {0,0,0,0};
 byte currentCam = 0;
 
 // the setup routine runs once when you press reset:
