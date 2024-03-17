@@ -11,7 +11,6 @@
 // digital pin 2 has a pushbutton attached to it. Give it a name:
 // Using no PWM pins
 byte cams[4] = {2,4,7,8};
-
 byte states[4] = {0,0,0,0};
 byte currentCam = 0;
 
