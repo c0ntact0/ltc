@@ -9,8 +9,9 @@
 */
 #include <util/atomic.h>
 // digital pin 2 has a pushbutton attached to it. Give it a name:
-byte cam1 = 2;
-byte cam2 = 4;
+// Using no PWM pins
+byte cams[4] = {2,4,7,8};
+
 byte states[4] = {0,0,0,0};
 byte currentCam = 0;
 
@@ -19,15 +20,17 @@ void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
   // make the pushbutton's pin an input:
-  pinMode(cam1, INPUT);
-  pinMode(cam2, INPUT);
+  for (int i = 0;i < sizeof(cams);i++) {
+    pinMode(cams[i],INPUT);
+  }
 }
 
 // the loop routine runs over and over again forever:
 void loop() {
   // read the input pin:
-  states[0] = digitalRead(cam1);
-  states[1] = digitalRead(cam2);
+    for (int i = 0;i < sizeof(cams);i++) {
+      states[i] = digitalRead(cams[i]);
+  }
   stateMachine();
   delay(10);  // delay in between reads for stability
   // print out the state of the button:
@@ -44,7 +47,7 @@ void stateMachine() {
       if (states[i] == 1 && currentCam != newCam && pressedCams == 0) {
         pressedCams++;
         currentCam = newCam;
-        Serial.println(String(currentCam));
+        Serial.print(currentCam);
       }
     
     }

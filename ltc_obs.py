@@ -8,11 +8,13 @@ import json
 from edl_manager import Edl
 import threading
 import ffmpeg
+from serial_com import SerialPort
 
 log_level = obs.LOG_DEBUG
 audio = pyaudio.PyAudio()
 tcObj = None
 edlObj = None
+serialPort = SerialPort()
 tc_stream = None
 tc_running = False
 current_tc = (0,0,0,0)
@@ -80,9 +82,11 @@ def script_properties():
     props = obs.obs_properties_create()
     operation_group = obs.obs_properties_create()
     config_group = obs.obs_properties_create()
+    serial_group = obs.obs_properties_create()
 
     obs.obs_properties_add_group(props,'operation_group',"Operation",obs.OBS_GROUP_NORMAL,operation_group)
     obs.obs_properties_add_group(props,'config_group',"Configuration",obs.OBS_GROUP_NORMAL,config_group)
+    obs.obs_properties_add_group(props,'serial_group',"Serial Port",obs.OBS_GROUP_NORMAL,serial_group)
 
     obs.obs_properties_add_button(operation_group,'button_record_control',"Start Recording",lambda props,prop: True if record_control(props,prop) else True)
     clipname = obs.obs_properties_add_text(operation_group,'clipname',"Clipname",obs.OBS_TEXT_DEFAULT)
@@ -119,6 +123,9 @@ def script_properties():
     dock_state = obs.obs_properties_add_bool(config_group,'dock_state',"Apply Dock State")
     obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
 
+    list_serial_port = obs.obs_properties_add_list(serial_group,'serial_port',"Serial Ports",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    populate_list_property_with_serial_ports(list_serial_port)
+
     # CALLBACKS
     obs.obs_property_set_modified_callback(list_devices, audio_device_changed)
     obs.obs_property_set_modified_callback(timeline_start, timeline_start_changed)
@@ -144,6 +151,8 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
     obs.obs_data_set_default_string(settings,'edl_path',os.path.expanduser("~"))
     obs.obs_data_set_default_bool(settings,'dock_state',True)
+    obs.obs_data_set_default_string(settings,'serial_port',"")
+    
 
 
 def script_update(settings):
@@ -167,7 +176,13 @@ def script_update(settings):
         obs.obs_data_set_string(settings,'timeline_start_info',"Format error, must be: hh:mm:ss:ff")
     edl_path = obs.obs_data_get_string(settings,'edl_path')
     current_cam = get_current_cam_name()
-    print(obs.obs_frontend_get_current_profile())
+    if not serialPort.is_open:
+        serialPort.inicialize_port(obs.obs_data_get_string(settings,'serial_port'))
+        if serialPort.is_open:
+            t = threading.Thread(target=read_from_serial)
+            t.start()
+
+    print("Current Profile:",obs.obs_frontend_get_current_profile())
 
 def add_souces_handlers():
     global sources_handlers,sources_cams
@@ -195,6 +210,7 @@ def script_tick(seconds):
     process_tc(lock)
 
 def script_load(settings):
+    global serialPort
     if obs.obs_data_get_bool(settings,'dock_state'):
         config = obs.obs_frontend_get_global_config()
         obs.config_set_string(config,"BasicWindow","DockState","AAAA/wAAAAD9AAAAAQAAAAMAAAQAAAABAfwBAAAABvsAAAAUAHMAYwBlAG4AZQBzAEQAbwBjAGsBAAAAAAAAASwAAACgAP////sAAAAWAHMAbwB1AHIAYwBlAHMARABvAGMAawEAAAEwAAABLAAAAKAA////+wAAABIAbQBpAHgAZQByAEQAbwBjAGsBAAACYAAAAaAAAADeAP////sAAAAeAHQAcgBhAG4AcwBpAHQAaQBvAG4AcwBEAG8AYwBrAAAAAx4AAADiAAAAnAD////7AAAAGABjAG8AbgB0AHIAbwBsAHMARABvAGMAawAAAALKAAABNgAAAJ4A////+wAAABIAcwB0AGEAdABzAEQAbwBjAGsCAAACYgAAAdcAAAK8AAAAyAAABAAAAAFLAAAABAAAAAQAAAAIAAAACPwAAAAA")
@@ -202,7 +218,7 @@ def script_load(settings):
     obs.obs_frontend_add_event_callback(on_frontend_event)
 
 def script_unload():
-    global tc_running,tc_stream,tcObj,edlObj,audio
+    global tc_running,tc_stream,tcObj,edlObj,audio,serialPort
     del tcObj
     del edlObj
     if tc_running:
@@ -210,6 +226,10 @@ def script_unload():
 
     if audio:
         audio.terminate()
+
+    if serialPort.is_open:
+        serialPort.stop()
+        serialPort.close_port()
 
 def on_frontend_event(e):
     global edlObj,current_timeline_frame,timeline_start, fps,tcObj
@@ -298,6 +318,12 @@ def populate_list_property_with_sources(list_property,types:list=None, show_type
             obs.obs_property_list_add_string(list_property, display_name, name)
     obs.source_list_release(sources)
 
+def populate_list_property_with_serial_ports(list_property):
+    serial_ports = serialPort.get_serial_ports()
+    obs.obs_property_list_clear(list_property)
+    for port,desc,hwid in serial_ports:
+        obs.obs_property_list_add_string(list_property,desc,port)
+
 def get_sceneitem_from_source_name_in_current_scene(name):
 	result_sceneitem = None
 	current_scene_as_source = obs.obs_frontend_get_current_scene()
@@ -330,6 +356,29 @@ def get_current_cam_name():
 
 
     return None
+
+def set_current_cam(cam_number:int):
+    """
+    cam_number is a number from 1 to max number of cameras
+    """
+    global sources_cams
+
+    idx = cam_number-1
+    if idx < 0:
+        return
+    
+    for i in range(len(sources_cams)):
+        #print(sources_cams[i])
+        current_scene_as_source = obs.obs_frontend_get_current_scene()
+        if current_scene_as_source:
+            current_scene = obs.obs_scene_from_source(current_scene_as_source)
+            scene_item = obs.obs_scene_find_source_recursive(current_scene, sources_cams[i])
+            if scene_item:
+                obs.obs_sceneitem_set_visible(scene_item,i == idx)
+                obs.obs_source_release(current_scene_as_source)
+
+
+
 
 def set_current_scene(scene_name):
         scenes = obs.obs_frontend_get_scenes()
@@ -541,3 +590,14 @@ def tc_stream_callback(in_data, frame_count, time_info, status):
     
     return (in_data, pyaudio.paContinue)
 
+# SERIAL
+def read_from_serial():
+    global serialPort
+    serialPort.start()
+    while serialPort.running:
+        serialPort.serial_obj.timeout = None
+        serial_msg = serialPort.serial_obj.read().decode('utf-8')
+        #print("Serial Msg:",serial_msg)
+        if serial_msg.isdigit():
+            set_current_cam(int(serial_msg))
+    
