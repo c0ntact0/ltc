@@ -14,8 +14,8 @@
 
 // digital pin 2 has a pushbutton attached to it. Give it a name:
 // Using no PWM pins
-// Using PWM pins
 byte cams[CAMS] = {2,4,7,8};
+// Using PWM pins
 byte leds[CAMS] = {3,5,6,9};
 byte states[CAMS] = {0,0,0,0};
 byte currentCam = 0;
@@ -40,7 +40,6 @@ void loop() {
   }
   stateMachine();
   delay(10);  // delay in between reads for stability
-  // print out the state of the button:
 }
 
 
@@ -62,5 +61,5 @@ void stateMachine() {
       }
     
     }
-
 }
+
