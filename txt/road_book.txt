@@ -21,3 +21,4 @@
 - Teste do objeto lendo um canal de áudio em tempo real (modo bloqueante com limite de tempo). OK
 - Teste em modo não bloqueante OK
 - Criação de plugin para OBS OK
+- Criação de GPIO to serial interface
