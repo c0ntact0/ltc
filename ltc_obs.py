@@ -654,8 +654,6 @@ def read_from_serial():
 def write_to_serial(number,msg:str='C'):
     global serialPort
     if serialPort.is_open:
-        #cam_name,cam_number = get_current_cam_name()
-        #bytes2write = cam_number.to_bytes(2,'big')
         bytes2write = bytearray(msg+str(number),'utf-8')
-        print(bytes2write,number)
+        #print(bytes2write,number)
         serialPort.serial_obj.write(bytes2write)
