@@ -37,6 +37,8 @@ sources_handlers = [] # handlers to signal the cam souces visibility
 
 lock = threading.Lock() # lock for the LTC process thread
 
+hotkey_ids = [obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID]
+
 # OBS CALLBACKS
 def audio_device_changed(props,p,settings):
     #global audio_device
@@ -53,10 +55,10 @@ def timeline_start_changed(props,p,settings):
     p = obs.obs_properties_get(props,'timeline_start_info')
     timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),fps)
     if timeline_start:
-        print("OK")
+        #print("OK")
         obs.obs_property_text_set_info_type(p,obs.OBS_TEXT_INFO_NORMAL)
     else:
-        print("Error")
+        #print("Error")
         obs.obs_property_text_set_info_type(p,obs.OBS_TEXT_INFO_ERROR)
 
     return True
@@ -70,6 +72,8 @@ def recording_changed(props,p,*args, **kwargs):
 
     return True
 
+
+
 # OBS FUNCTIONS
 def script_description():
     return """- Configure all settings
@@ -77,7 +81,7 @@ def script_description():
 - Press "Start Recording" to start the recorder and external LTC capture.
     """
 def script_properties():
-    global edl_path
+    global edl_path,serialPort
     print("script_properties")
     props = obs.obs_properties_create()
     operation_group = obs.obs_properties_create()
@@ -130,6 +134,13 @@ def script_properties():
     obs.obs_property_set_modified_callback(list_devices, audio_device_changed)
     obs.obs_property_set_modified_callback(timeline_start, timeline_start_changed)
    
+   # This must be here because we need the Cut Sources values to get the current cam number
+    if serialPort.is_open:
+        _,cam_number = get_current_cam_name()
+        write_to_serial(cam_number)
+        write_to_serial(len(sources_cams),'N')
+
+
     return props
 
 def script_defaults(settings):
@@ -175,15 +186,90 @@ def script_update(settings):
         timeline_start = 0
         obs.obs_data_set_string(settings,'timeline_start_info',"Format error, must be: hh:mm:ss:ff")
     edl_path = obs.obs_data_get_string(settings,'edl_path')
-    current_cam = get_current_cam_name()
+    current_cam,cam_number = get_current_cam_name()
     if not serialPort.is_open:
         serialPort.inicialize_port(obs.obs_data_get_string(settings,'serial_port'))
+
         if serialPort.is_open:
             t = threading.Thread(target=read_from_serial)
             t.start()
 
     print("Current Profile:",obs.obs_frontend_get_current_profile())
 
+
+def script_tick(seconds):
+    process_tc(lock)
+
+def script_load(settings):
+    global serialPort
+    print("script_load")
+    if obs.obs_data_get_bool(settings,'dock_state'):
+        config = obs.obs_frontend_get_global_config()
+        obs.config_set_string(config,"BasicWindow","DockState","AAAA/wAAAAD9AAAAAQAAAAMAAAQAAAABAfwBAAAABvsAAAAUAHMAYwBlAG4AZQBzAEQAbwBjAGsBAAAAAAAAASwAAACgAP////sAAAAWAHMAbwB1AHIAYwBlAHMARABvAGMAawEAAAEwAAABLAAAAKAA////+wAAABIAbQBpAHgAZQByAEQAbwBjAGsBAAACYAAAAaAAAADeAP////sAAAAeAHQAcgBhAG4AcwBpAHQAaQBvAG4AcwBEAG8AYwBrAAAAAx4AAADiAAAAnAD////7AAAAGABjAG8AbgB0AHIAbwBsAHMARABvAGMAawAAAALKAAABNgAAAJ4A////+wAAABIAcwB0AGEAdABzAEQAbwBjAGsCAAACYgAAAdcAAAK8AAAAyAAABAAAAAFLAAAABAAAAAQAAAAIAAAACPwAAAAA")
+
+    obs.obs_frontend_add_event_callback(on_frontend_event)
+
+    register_hot_keys(settings)
+
+
+def script_unload():
+    global tc_running,tc_stream,tcObj,edlObj,audio,serialPort
+    print("script_unload")
+    del tcObj
+    del edlObj
+    if tc_running:
+        tc_stream.close()
+
+    if audio:
+        audio.terminate()
+
+    if serialPort.is_open:
+        serialPort.stop()
+        serialPort.close_port()
+
+def script_save(settings):
+    save_hotkeys(settings)
+    
+
+# HOT_KEYS
+def register_hot_keys(settings):
+    global hotkey_ids
+    for i in range(len(hotkey_ids)):
+        description = "Select CAM" + str(i+1)
+        
+        hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description,eval("hotkey_id_" + str(i+1) + "_callback"))
+        hotkey_save_array = obs.obs_data_get_array(settings, "hotkey_" + str(i))
+        obs.obs_hotkey_load(hotkey_ids[i], hotkey_save_array)
+        obs.obs_data_array_release(hotkey_save_array)
+
+def save_hotkeys(settings):
+    for i in range(len(hotkey_ids)):
+        hotkey_save_array = obs.obs_hotkey_save(hotkey_ids[i])
+        obs.obs_data_set_array(settings, "hotkey_" + str(i), hotkey_save_array)
+        obs.obs_data_array_release(hotkey_save_array)
+
+
+def hotkey_id_1_callback(pressed):
+    if pressed:
+        set_current_cam(1)
+        write_to_serial(1)
+
+def hotkey_id_2_callback(pressed):
+    if pressed:
+        set_current_cam(2)
+        write_to_serial(2)
+
+def hotkey_id_3_callback(pressed):
+    if pressed:
+        set_current_cam(3)    
+        write_to_serial(3)
+
+def hotkey_id_4_callback(pressed):
+    if pressed:
+        set_current_cam(4)
+        write_to_serial(4)
+
+# SOURCES HANDLERS AND CALLBACKS
 def add_souces_handlers():
     global sources_handlers,sources_cams
     print("Configuring source handlers")
@@ -201,35 +287,10 @@ def add_souces_handlers():
         #obs.obs_source_release(source)
 
 def sources_callback(calldata):
-    #global edlObj,tc_running,tcObj,timeline_start,current_timeline_frame,edl_path,fps
     global current_cam
     source = obs.calldata_source(calldata,"source")
     current_cam = obs.obs_source_get_name(source)
 
-def script_tick(seconds):
-    process_tc(lock)
-
-def script_load(settings):
-    global serialPort
-    if obs.obs_data_get_bool(settings,'dock_state'):
-        config = obs.obs_frontend_get_global_config()
-        obs.config_set_string(config,"BasicWindow","DockState","AAAA/wAAAAD9AAAAAQAAAAMAAAQAAAABAfwBAAAABvsAAAAUAHMAYwBlAG4AZQBzAEQAbwBjAGsBAAAAAAAAASwAAACgAP////sAAAAWAHMAbwB1AHIAYwBlAHMARABvAGMAawEAAAEwAAABLAAAAKAA////+wAAABIAbQBpAHgAZQByAEQAbwBjAGsBAAACYAAAAaAAAADeAP////sAAAAeAHQAcgBhAG4AcwBpAHQAaQBvAG4AcwBEAG8AYwBrAAAAAx4AAADiAAAAnAD////7AAAAGABjAG8AbgB0AHIAbwBsAHMARABvAGMAawAAAALKAAABNgAAAJ4A////+wAAABIAcwB0AGEAdABzAEQAbwBjAGsCAAACYgAAAdcAAAK8AAAAyAAABAAAAAFLAAAABAAAAAQAAAAIAAAACPwAAAAA")
-
-    obs.obs_frontend_add_event_callback(on_frontend_event)
-
-def script_unload():
-    global tc_running,tc_stream,tcObj,edlObj,audio,serialPort
-    del tcObj
-    del edlObj
-    if tc_running:
-        tc_stream.close()
-
-    if audio:
-        audio.terminate()
-
-    if serialPort.is_open:
-        serialPort.stop()
-        serialPort.close_port()
 
 def on_frontend_event(e):
     global edlObj,current_timeline_frame,timeline_start, fps,tcObj
@@ -345,17 +406,20 @@ def get_source_by_name(name:str):
     return result_source
 
 def get_current_cam_name():
+    """
+    Retuns:
+        cam name, cam number
+    """
     global sources_cams
            
-    for cam in sources_cams:
-        source = obs.obs_get_source_by_name(cam)
+    for i in range(len(sources_cams)):
+        source = obs.obs_get_source_by_name(sources_cams[i])
         if obs.obs_source_active(source):
             obs.obs_source_release(source)
-            return cam
+            return sources_cams[i],i+1
         obs.obs_source_release(source)
 
-
-    return None
+    return None,0
 
 def set_current_cam(cam_number:int):
     """
@@ -376,9 +440,6 @@ def set_current_cam(cam_number:int):
             if scene_item:
                 obs.obs_sceneitem_set_visible(scene_item,i == idx)
                 obs.obs_source_release(current_scene_as_source)
-
-
-
 
 def set_current_scene(scene_name):
         scenes = obs.obs_frontend_get_scenes()
@@ -506,8 +567,7 @@ def apply_ffmpeg_rewrap(reel:str):
     time.sleep(0.5)
     (
         ffmpeg.input(video_filename_renamed)
-        .output(video_filename,c='copy',timecode=clip_tc,
-                movflags='use_metadata_flags',map_metadata=0,metadata='"Comments='+reel+'"'
+        .output(video_filename,c='copy',timecode=clip_tc,metadata='"Name='+reel+'"'
                 ).run()
     )
     os.remove(video_filename_renamed)
@@ -531,7 +591,7 @@ def process_tc(lock):
                 return
             if this_tc != current_tc:
                 if not current_cam:
-                    current_cam = get_current_cam_name()
+                    current_cam,_ = get_current_cam_name()
                 timeline_tc_string = tc.tc2String(tc.frames2tc(current_timeline_frame,fps)) # used in the first cut
                 mark_timeline_tc_string = tc.tc2String(tc.frames2tc(current_timeline_frame - (1 if edlObj else 0),fps))
                 
@@ -551,30 +611,19 @@ def process_tc(lock):
                 #mark_tc_string = current_tc_string
                 if edlObj:
                     if recording and edlObj.cut_counter == 0: #not edlObj:
-                    #    #current_timeline_frame = timeline_start
-                    #    edlObj = Edl()
-                    #    config = obs.obs_frontend_get_profile_config()
-                    #    obs.config_set_string(config, "Output","FilenameFormatting", "teste" + edlObj.date_string)
                          clip_tc = current_tc_string
-                         #edlObj.add_cut_in(current_cam,current_cam,current_tc_string,timeline_tc_string)
                          edlObj.add_cut_in(current_cam,current_cam,current_tc_string,current_tc_string)
-                    #    #pprint(edlObj.edl)
                     elif new_cam and recording and edlObj.cut_counter > 0:
-                        #edlObj.add_cut_out(mark_tc_string,mark_timeline_tc_string)
-                        #edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_timeline_tc_string)
                         edlObj.add_cut_out(mark_tc_string,mark_tc_string)
                         edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_tc_string)
-                        #pprint(edlObj.edl)
                     elif not new_cam and not recording and edlObj.cut_counter > 0:
                         file_reel = edlObj.date_string
-                        #edlObj.add_cut_out(mark_tc_string,mark_timeline_tc_string)
                         edlObj.add_cut_out(mark_tc_string,mark_tc_string)
                         edlObj.save_avid_edl(edl_path,file_reel+'.edl',clipname)
                         edlObj = None
                         t = threading.Thread(target=apply_ffmpeg_rewrap,args=(file_reel,))
                         t.start()
                         print("Last cut")
-                        #pprint(edlObj.edl)
                     else:
                         pass
                 
@@ -593,7 +642,8 @@ def tc_stream_callback(in_data, frame_count, time_info, status):
 # SERIAL
 def read_from_serial():
     global serialPort
-    serialPort.start()
+    if not serialPort.running:
+        serialPort.start()
     while serialPort.running:
         serialPort.serial_obj.timeout = None
         serial_msg = serialPort.serial_obj.read().decode('utf-8')
@@ -601,3 +651,11 @@ def read_from_serial():
         if serial_msg.isdigit():
             set_current_cam(int(serial_msg))
     
+def write_to_serial(number,msg:str='C'):
+    global serialPort
+    if serialPort.is_open:
+        #cam_name,cam_number = get_current_cam_name()
+        #bytes2write = cam_number.to_bytes(2,'big')
+        bytes2write = bytearray(msg+str(number),'utf-8')
+        print(bytes2write,number)
+        serialPort.serial_obj.write(bytes2write)

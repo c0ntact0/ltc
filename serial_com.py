@@ -1,5 +1,6 @@
 import serial.tools.list_ports as serial_list_ports
 import serial
+import time
 
 class SerialPort():
 
@@ -27,6 +28,7 @@ class SerialPort():
     def inicialize_port(self,port:str,baudrate:int = 9600,bytesize:int = 8,parity:str = 'N',stopbits:int = 1):
         try:
             self._serial_obj = serial.Serial(port,baudrate,bytesize,parity,stopbits)
+            time.sleep(3) # wait for arduino init
         except serial.SerialException as e:
             print('Error opening port:',e)
         else:
