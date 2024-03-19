@@ -9,7 +9,8 @@
 */
 #include <util/atomic.h>
 
-int nCams = 4;
+#define MAX_CAMS 4
+int nCams = MAX_CAMS;
 // digital pin 2 has a pushbutton attached to it. Give it a name:
 // Using no PWM pins
 byte cams[] = {2,4,7,8};
@@ -88,7 +89,16 @@ void serialRead() {
         break;
 
       case 'N':
+        for (int l = 0;l < MAX_CAMS;l++) {
+
+          digitalWrite(leds[l],LOW);
+        }
         nCams = number;
+
+        if (0 <= currentCam - 1 && currentCam - 1 < nCams) {
+
+          digitalWrite(leds[currentCam - 1],HIGH);
+        }
         break;
     }
     msg = NULL;
