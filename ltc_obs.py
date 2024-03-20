@@ -567,7 +567,11 @@ def apply_ffmpeg_rewrap(reel:str):
     time.sleep(0.5)
     (
         ffmpeg.input(video_filename_renamed)
-        .output(video_filename,c='copy',timecode=clip_tc,metadata='"Name='+reel+'"'
+        .output(video_filename,c='copy',
+                timecode=clip_tc,
+                movflags='use_metadata_tags',
+                map_metadata=0,
+                metadata='name='+reel
                 ).run()
     )
     os.remove(video_filename_renamed)
