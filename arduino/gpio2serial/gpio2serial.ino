@@ -19,7 +19,6 @@ byte leds[] = {3,5,6,9};
 byte states[] = {0,0,0,0};
 byte currentCam = 0;
 bool fromInput = false;
-char msg = NULL;
 
 // the setup routine runs once when you press reset:
 void setup() {
@@ -68,13 +67,12 @@ void stateMachine() {
 
 void serialRead() {
   if (Serial.available()) {
-    char byteRead = Serial.read();
-
-    if (isAlpha(byteRead)) {
-      msg = byteRead;
-    } else {
-    
-    int number = byteRead - '0';
+    Serial.setTimeout(0);
+    String byteRead = Serial.readString();
+    byteRead.trim();
+    char msg = byteRead.charAt(0);
+    byteRead.remove(0,1);
+    int number = byteRead.toInt();
     fromInput= true;
     switch (msg) {
       case 'C':
@@ -101,9 +99,9 @@ void serialRead() {
         }
         break;
     }
-    msg = NULL;
+    Serial.setTimeout(1000); // default
   }
-  }
+  
 
 }
 
