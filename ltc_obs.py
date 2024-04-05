@@ -37,7 +37,9 @@ sources_handlers = [] # handlers to signal the cam souces visibility
 
 lock = threading.Lock() # lock for the LTC process thread
 
-hotkey_ids = [obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID,obs.OBS_INVALID_HOTKEY_ID]
+hotkeys_num = 5
+hotkey_ids = []
+
 
 # OBS CALLBACKS
 def audio_device_changed(props,p,settings):
@@ -167,7 +169,7 @@ def script_defaults(settings):
 
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname
+    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname,hotkey_ids
     print("script_update")
     clipname = obs.obs_data_get_string(settings,'clipname')
     audio_device = get_audio_device_from_properties(settings)
@@ -177,6 +179,10 @@ def script_update(settings):
     display_timeline_tc = obs.obs_data_get_bool(settings,'display_tmeline_tc')
     sources_cams = array_t_to_list(obs.obs_data_get_array(settings,"sources_cams"))
     add_souces_handlers()
+    
+    
+    register_hot_keys(settings)
+    print(hotkey_ids)
 
     timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),fps)
     if timeline_start:
@@ -209,7 +215,6 @@ def script_load(settings):
 
     obs.obs_frontend_add_event_callback(on_frontend_event)
 
-    register_hot_keys(settings)
 
 
 def script_unload():
@@ -235,9 +240,21 @@ def script_save(settings):
 def register_hot_keys(settings):
     global hotkey_ids
     for i in range(len(hotkey_ids)):
+        current_hotkey_id = i+1        
+        f_name = "hotkey_id_"+ str(current_hotkey_id) + "_callback"
+        obs.obs_hotkey_unregister(f_name)
+            
+    
+    hotkey_ids = [obs.OBS_INVALID_HOTKEY_ID for i in range(len(sources_cams))]
+    for i in range(len(hotkey_ids)):
         description = "Select CAM" + str(i+1)
-        
-        hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description,eval("hotkey_id_" + str(i+1) + "_callback"))
+        current_hotkey_id = i+1        
+        #hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description,eval("hotkey_id_" + str(i+1) + "_callback"))
+        f_name = "hotkey_id_"+ str(current_hotkey_id) + "_callback"
+        code = "def " +  f_name +"(pressed):\n    if pressed:\n        set_current_cam("+ str(current_hotkey_id) +")\n        write_to_serial(" + str(current_hotkey_id) + ")"
+        x = compile(code,'callback','exec')
+        exec(x)
+        hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description, eval(f_name))
         hotkey_save_array = obs.obs_data_get_array(settings, "hotkey_" + str(i))
         obs.obs_hotkey_load(hotkey_ids[i], hotkey_save_array)
         obs.obs_data_array_release(hotkey_save_array)
@@ -247,27 +264,6 @@ def save_hotkeys(settings):
         hotkey_save_array = obs.obs_hotkey_save(hotkey_ids[i])
         obs.obs_data_set_array(settings, "hotkey_" + str(i), hotkey_save_array)
         obs.obs_data_array_release(hotkey_save_array)
-
-
-def hotkey_id_1_callback(pressed):
-    if pressed:
-        set_current_cam(1)
-        write_to_serial(1)
-
-def hotkey_id_2_callback(pressed):
-    if pressed:
-        set_current_cam(2)
-        write_to_serial(2)
-
-def hotkey_id_3_callback(pressed):
-    if pressed:
-        set_current_cam(3)    
-        write_to_serial(3)
-
-def hotkey_id_4_callback(pressed):
-    if pressed:
-        set_current_cam(4)
-        write_to_serial(4)
 
 # SOURCES HANDLERS AND CALLBACKS
 def add_souces_handlers():
