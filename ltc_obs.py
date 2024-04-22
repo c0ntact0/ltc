@@ -610,14 +610,14 @@ def process_tc(lock):
                     print("MARK:",mark_tc_string,current_cam)
                 #mark_tc_string = current_tc_string
                 if edlObj:
+                    file_reel = edlObj.date_string
                     if recording and edlObj.cut_counter == 0: #not edlObj:
-                         clip_tc = current_tc_string
-                         edlObj.add_cut_in(current_cam,current_cam,current_tc_string,current_tc_string)
+                        clip_tc = current_tc_string
+                        edlObj.add_cut_in(current_cam,file_reel,current_tc_string,current_tc_string)
                     elif new_cam and recording and edlObj.cut_counter > 0:
                         edlObj.add_cut_out(mark_tc_string,mark_tc_string)
-                        edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_tc_string)
+                        edlObj.add_cut_in(current_cam,file_reel,mark_tc_string,mark_tc_string)
                     elif not new_cam and not recording and edlObj.cut_counter > 0:
-                        file_reel = edlObj.date_string
                         edlObj.add_cut_out(mark_tc_string,mark_tc_string)
                         edlObj.save_avid_edl(edl_path,file_reel+'.edl',clipname)
                         edlObj = None

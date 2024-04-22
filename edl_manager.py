@@ -86,7 +86,7 @@ class Edl():
             for k in range(1,len(cuts)+1):
                 cut = cuts[k]
                 f.write(cut['id'] + "  " + cut['reel'] + " V     C        " + cut['tc_in'] + " " + cut['tc_out'] + " " + cut['timeline_in'] + " " + cut['timeline_out'] + "\n")
-                f.write("* FROM CLIP NAME:  " + self._edl['title'] + "\n")
+                f.write("* FROM CLIP NAME:  " + cut['clipname'] + "\n")
 
     def load_avid_edl(self,filename:str):
         
