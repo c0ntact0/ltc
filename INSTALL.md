@@ -1,5 +1,10 @@
 # Python
 
+If you have conda please get out of any environment:
+````
+conda deactivate
+````
+
 https://obsinfo.readthedocs.io/en/master/installation.html
 
 ## MacOS arm64
