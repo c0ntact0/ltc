@@ -13,6 +13,7 @@ from serial_com import SerialPort
 log_level = obs.LOG_DEBUG
 audio = pyaudio.PyAudio()
 tcObj = None
+
 edlObj = None
 serialPort = SerialPort()
 tc_stream = None

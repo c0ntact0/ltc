@@ -13,6 +13,5 @@ This is a plugin script writen in python to use in the Open Brodcast Software (O
 - LTC can be displayed in a Text OBS source.
 - 
 ## Instalation
-```
-Work in progress
-```
+
+Read [INSTALL.md](/INSTALL.md).
