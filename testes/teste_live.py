@@ -1,3 +1,7 @@
+"""
+    Can be used to list the devices and test the input.
+    Blocking flavor
+"""
 import pyaudio  
 import wave
 from pprint import pprint
@@ -46,6 +50,7 @@ stream.stop_stream()
 stream.close()
 p.terminate()
 
+# comment this exit to write the wav to a file
 exit()
 waveFile = wave.open(WAVE_OUTPUT_FILE, 'wb')
 waveFile.setnchannels(CHANNELS)
