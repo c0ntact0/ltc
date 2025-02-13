@@ -36,8 +36,15 @@ RECORD_SECONDS=5
 WAVE_OUTPUT_FILE='D:\LTC_PROJECT\input_test_8bits.wav'
 FORMAT=pyaudio.paInt24
 CHANNELS=1
+DEVICE_INDEX = 1
 tcObj = Tc(RATE,25) #TODO: ver como lidar com os samples
-stream = p.open(format=FORMAT,input=True,input_device_index=1,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK,stream_callback=callback)
+try:   
+    stream = p.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK,stream_callback=callback)
+except OSError as error:
+    print(error)
+    if error.errno == -9998:
+        print("Choose a correct DEVICE_INDEX.")
+    exit()
 print ("recording...")
 
 sair = input()
