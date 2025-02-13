@@ -1,6 +1,8 @@
 import numpy as np
 import threading
 
+LINE_UP = '\033[1A'
+
 class Tc:
     def __init__(self,sample_rate:int,fps:int, start=0,n_samples=None) -> None:
         self._currentTc = (0,0,0,0)
@@ -108,7 +110,11 @@ class Tc:
         frames = self._number_0_2[frame_dic['frames_tens']]*10+self._number_0_9[frame_dic['frames_units']]
         return (hour,minutes,seconds,frames)
     
-    def process_line_code(self,data):
+    def process_line_code(self,data,to_console=False,to_console_fixed=False):
+        """
+            to_console: send the TC to the console (tests).
+            fixed: print to console without line linefeed.
+        """
         if not self._n_samples:
             self._n_samples = len(data)
         for sample in data[self._start:self._n_samples]:
@@ -131,7 +137,7 @@ class Tc:
                 
                 if len(self._frame) == 80:
                     self._currentTc=self.getTc(self._frame)
-                    #print(self.tc2String(self.getTc(self._frame)))
+                    if to_console or to_console_fixed: print(tc2String(self.getTc(self._frame)),(LINE_UP if to_console_fixed else ""))
                 self._frame=''
             self._old_sign = sign
 

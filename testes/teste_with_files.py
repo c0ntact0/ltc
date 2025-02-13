@@ -7,7 +7,7 @@ import os
 
 if __name__ == "__main__":   
     
-    print_wave=1
+    print_wave=0
     if os.name == 'nt':
         #sample_rate,data = wavfile.read('D:\LTC_PROJECT\LTC_01000000_1mins_30fps_48000x24.wav')
         sample_rate,data = wavfile.read('D:\LTC_PROJECT\input_test.wav')
@@ -16,7 +16,7 @@ if __name__ == "__main__":
         #sample_rate,data = wavfile.read('/Users/rui/LTC_PROJECT/LTC_01000000_10mins_25fps_44100x24.wav')
         #sample_rate,data = wavfile.read('/Users/rui/LTC_PROJECT/LTC_01000000_1mins_25fps_48000x24.wav')
         #sample_rate,data = wavfile.read('/Users/rui/LTC_PROJECT/LTC_01000000_1mins_30fps_48000x24.wav')
-        sample_rate,data = wavfile.read('/Users/rui/LTC_PROJECT/input_test_8bits.wav')
+        sample_rate,data = wavfile.read('/Users/rui/LTC_PROJECT/wav/input_test_8bits.wav')
     
     fps=25
     print(f"Sample Rate = {sample_rate}")
@@ -35,9 +35,9 @@ if __name__ == "__main__":
         plt.show()
     tcObj = Tc(sample_rate,fps,start,n_samples)
     tcObj.process_line_code(data)
-    exit(0)
+    #exit(0)
     CHUCK=960
     for pointer in range(0,len(data[start:n_samples]),CHUCK):
         
-        tcObj.process_line_code(data[pointer:pointer+CHUCK])
+        tcObj.process_line_code(data[pointer:pointer+CHUCK],to_console=True)
 

@@ -13,6 +13,12 @@ for i in range(devices):
     if device_info.get('maxInputChannels') > 0:
       pprint(device_info)
 
+try:
+    input_device_index = int(input("Please choose a index: "))
+except Exception:
+    print("Some error occurred.")
+    exit()
+    
 device_info = p.get_device_info_by_index(1)
 pprint(device_info)
 RATE = int(device_info.get('defaultSampleRate'))
@@ -22,7 +28,7 @@ WAVE_OUTPUT_FILE='D:\LTC_PROJECT\input_test_8bits.wav'
 FORMAT=pyaudio.paInt24
 CHANNELS=1
 tcObj = Tc(RATE,25) #TODO: ver como lidar com os samples
-stream = p.open(format=FORMAT,input=True,input_device_index=1,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK)
+stream = p.open(format=FORMAT,input=True,input_device_index=input_device_index,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK)
 print ("recording...")
 frames = []
   
