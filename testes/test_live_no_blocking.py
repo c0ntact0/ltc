@@ -6,11 +6,16 @@ import pyaudio
 import wave
 from pprint import pprint
 from tc import Tc
+import numpy as np
+
+CHANNELS = 2
+CHANNEL = 0
 
 def callback(in_data, frame_count, time_info, status):
-    int_values = tcObj.bytes2ints(in_data)
-    tcObj.process_line_code(int_values)
-    print(tcObj.currentTcString)
+    #print(np.shape(in_data))
+    int_values = tcObj.bytes2ints(in_data[CHANNEL::CHANNELS])
+    tcObj.process_line_code(int_values,to_console=True)
+    #print(tcObj.currentTcString)
 
     return (in_data, pyaudio.paContinue) 
 
@@ -28,19 +33,23 @@ for i in range(devices):
 
 print('Input Devices:',input_devices)
 
+try:
+    DEVICE_INDEX = int(input("Please choose a index: "))
+except Exception:
+    print("Some error occurred.")
+    exit()
 
-device_info = p.get_device_info_by_index(1)
+device_info = p.get_device_info_by_index(DEVICE_INDEX)
 
 
 pprint(device_info)
 RATE = int(device_info.get('defaultSampleRate'))
-CHUNK=32*24
-
+CHUNK=24
+#CHANNELS = int(device_info.get('maxInputChannels'))
 RECORD_SECONDS=5
 WAVE_OUTPUT_FILE='D:\LTC_PROJECT\input_test_8bits.wav'
 FORMAT=pyaudio.paInt24
-CHANNELS=1
-DEVICE_INDEX = 1
+#CHANNELS=device_info.get()
 tcObj = Tc(RATE,25) #TODO: ver como lidar com os samples
 try:   
     stream = p.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK,stream_callback=callback)

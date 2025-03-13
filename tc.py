@@ -1,11 +1,13 @@
 import numpy as np
 import threading
 
+
 LINE_UP = '\033[1A'
 
 class Tc:
     def __init__(self,sample_rate:int,fps:int, start=0,n_samples=None) -> None:
         self._currentTc = (0,0,0,0)
+        
         self._frame = ''
         self._s_count = 0
         self._sample_rate = sample_rate
@@ -18,6 +20,7 @@ class Tc:
         self._period=int(sample_rate/fps/80)
         self._half_period=int(self._period/2)
         self._period_drift=2
+        # bits sequencies are little endian
         self.SYNC_WORD = '0011111111111101'
         self._number_0_9 = {
             '0000':0,
@@ -29,8 +32,7 @@ class Tc:
             '0110':6,
             '1110':7,
             '0001':8,
-            '1001':9,
-        }
+            '1001':9        }
 
         self._number_0_2 = {
             '00':0,
@@ -45,10 +47,23 @@ class Tc:
             '010':2,
             '110':3,
             '001':4,
-            '101':5,
+            '101':5
         }
+        
+        self._frames = [] # GPT
+    
+    def frame2dic(self,data_frame:str) -> dict:
+        """Gets a LTC data frame and returns a dict with all the LTC data frame components.
+        
+        Parameters
+        ----------
+        data_frame: str
+            a string with the binary data frame
 
-    def frame2dic(self,data_frame:str):
+        Returns
+        -------
+        A dict with the LTC components binary strings.
+        """
         return {
             # TC
             'frames_units':data_frame[0:4],
@@ -79,21 +94,25 @@ class Tc:
     
     @property
     def currentTc(self):
-        
         return self._currentTc
 
     @property
     def currentTcString(self):
         return tc2String(self._currentTc)
 
-    def bytes2ints(self,data:bytes,bits=24):
-        """
-            Get signed integers from a bytes array.
+    def bytes2ints(self,data:bytes,bits:int=24)-> list:
+        """Get signed integers from a bytes array.
 
             Parameters
-
+            ----------
             data: bytes
-            bits: number of bits the integers 
+                list of bytes
+            bits: int
+                number of bits of the integers
+
+            Returns
+            -------
+            A list with the signed integers.
         """
         int_values=[]
         n_bytes=int(bits/8)
@@ -103,17 +122,43 @@ class Tc:
         return int_values
     
     def getTc(self,data_frame:str):
+        """Get a data frame and convert to a tuple with the time code.
+
+        Parameters
+        ----------   
+        data_frame: str
+            The data frame.
+        
+        Returns
+        -------
+        A tuple (hour,minutes,seconds,frames)
+        """
         frame_dic = self.frame2dic(data_frame)
-        hour = self._number_0_2[frame_dic['hours_tens']]*10+self._number_0_9[frame_dic['hours_units']]
-        minutes = self._number_0_5[frame_dic['minutes_tens']]*10+self._number_0_9[frame_dic['minutes_units']]
-        seconds = self._number_0_5[frame_dic['seconds_tens']]*10+self._number_0_9[frame_dic['seconds_units']]
-        frames = self._number_0_2[frame_dic['frames_tens']]*10+self._number_0_9[frame_dic['frames_units']]
+        #hour = self._number_0_2.get(frame_dic['hours_tens'],self.wrong_key_callback())*10+self._number_0_9.get(frame_dic['hours_units'],self.wrong_key_callback())
+        #minutes = self._number_0_5.get(frame_dic['minutes_tens'],self.wrong_key_callback())*10+self._number_0_9.get(frame_dic['minutes_units'],self.wrong_key_callback())
+        #seconds = self._number_0_5.get(frame_dic['seconds_tens'],self.wrong_key_callback())*10+self._number_0_9.get(frame_dic['seconds_units'],self.wrong_key_callback())
+        #frames = self._number_0_2.get(frame_dic['frames_tens'],self.wrong_key_callback())*10+self._number_0_9.get(frame_dic['frames_units'],self.wrong_key_callback())
+        try:
+            hour = self._number_0_2.get(frame_dic['hours_tens'])*10+self._number_0_9.get(frame_dic['hours_units'])
+            minutes = self._number_0_5.get(frame_dic['minutes_tens'])*10+self._number_0_9.get(frame_dic['minutes_units'])
+            seconds = self._number_0_5.get(frame_dic['seconds_tens'])*10+self._number_0_9.get(frame_dic['seconds_units'])
+            frames = self._number_0_2.get(frame_dic['frames_tens'])*10+self._number_0_9.get(frame_dic['frames_units'])
+        except Exception as e:
+            #print(e)
+            print("Something went wrong while reading time code from audio stream. Please try other channel.")
+            return
+
         return (hour,minutes,seconds,frames)
     
     def process_line_code(self,data,to_console=False,to_console_fixed=False):
-        """
-            to_console: send the TC to the console (tests).
-            fixed: print to console without line linefeed.
+        """Process a data from the audio input.
+
+        Parameters
+        ----------
+        to_console: bool, optional
+            send the TC to the console (tests).
+        fixed: bool, optional
+            print to console without line linefeed (tests).
         """
         if not self._n_samples:
             self._n_samples = len(data)
@@ -136,24 +181,43 @@ class Tc:
             if self._frame.endswith(self.SYNC_WORD):
                 
                 if len(self._frame) == 80:
+                    #previousTcFrame = tc2frames(self._currentTc,self._fps)
                     self._currentTc=self.getTc(self._frame)
+                    #currentTcFrames = tc2frames(self._currentTc,self._fps)
+                    #deltaFrames = currentTcFrames - previousTcFrame
+                    #print(deltaFrames)
+                    
                     if to_console or to_console_fixed: print(tc2String(self.getTc(self._frame)),(LINE_UP if to_console_fixed else ""))
+                    
+                    
                 self._frame=''
             self._old_sign = sign
 
+    def wrong_key_callback(self):
+        
+        print("WARNING: Invalid key error in LTC audio stream. This can compromise the LTC accuracy.")
+        return 0
+    
 def tc2String(tc:tuple):
-    return str("{:02}".format(tc[0]) + ":" + "{:02}".format(tc[1]) + ":" + "{:02}".format(tc[2]) + ":" +"{:02}".format(tc[3]))
+    try:
+        return str("{:02}".format(tc[0]) + ":" + "{:02}".format(tc[1]) + ":" + "{:02}".format(tc[2]) + ":" +"{:02}".format(tc[3]))
+    except:
+        return ""
 
 def string2tc(tc:str,fps:int):
 
-    """
-        Converts a TC string in format hh:mm:ss:ff to a tuple of integers like (h,m,s,f)
+    """Converts a TC string in format hh:mm:ss:ff to a tuple of integers like (h,m,s,f)
 
-        Parameters:
-            tc: string in format "hh:mm:ss:ff"
-            pfs: int frame rate
-        Return:
-            A tuple or None if tc is in the wrong format.
+    Parameters
+    ----------
+    tc: str
+        string in format "hh:mm:ss:ff"
+    fps: int
+        frame rate
+        
+    Returns
+    -------
+    A tuple or None if tc is in the wrong format.
     """
     ret = None
     tc_list = tc.split(':')
@@ -171,16 +235,49 @@ def string2tc(tc:str,fps:int):
     return ret
 
 def frames2tc(total_frames:int,fps:int):
-    hours = int(total_frames / (3600 * fps))
-    minutes = int(total_frames / (60 * fps) % 60)
-    seconds = int(total_frames / fps % 60)
-    frames = int(total_frames % fps)
+    """Converts frames to TC.
+    
+    Parameters
+    ----------
+    total_frames: int
+        total frames to convert.
+    fps: int
+        frame rate.
+
+    Returns
+    -------
+    A tuple as (hours,minutes,seconds,frames).
+    """
+    try:
+        hours = int(total_frames / (3600 * fps))
+        minutes = int(total_frames / (60 * fps) % 60)
+        seconds = int(total_frames / fps % 60)
+        frames = int(total_frames % fps)
+    except:
+        return (0,0,0,0)
+    
     return (hours,minutes,seconds,frames)
 
-def tc2frames(tc:tuple,fps:int):
-    frames_seconds = tc[2] * fps
-    frames_minutes = tc[1] * 60 * fps
-    frames_hours = tc[0] * 60 * 60 * fps
+def tc2frames(tc:tuple,fps:int) -> int:
+    """Converts TC to frames.
+    
+    Parameters
+    ----------
+    tc: tuple
+        A tuple as (hours,minutes,seconds,frames).
+    fps: int
+        frame rate.
+
+    Returns
+    -------
+    Total number o frames.
+    """
+    try:
+        frames_seconds = tc[2] * fps
+        frames_minutes = tc[1] * 60 * fps
+        frames_hours = tc[0] * 60 * 60 * fps
+    except:
+        return 0
     
     return frames_hours + frames_minutes + frames_seconds + tc[3]
 
