@@ -1,14 +1,19 @@
-# Table of contents
+# LTC in OBS installation instructions
 
-- [Python](##Python)
-- [Windows](##Windows)
+## Table of contents
+
+- [OBS General Python](#obs-python)
+- [Windows](#windows-install)
+- [MacOS arm64](#macos-install)
 - [Ubuntu](#ubuntu-install)
 
-## Python
+<h2 id="obs-python">OBS General Python Instructions</h2>
+You may want to read this first.   
 
 https://obsinfo.readthedocs.io/en/master/installation.html
 
-## Windows
+
+<h2 id="windows-install">Windows</h2>
 
 Windows was the development environment and it's strongly recommended for operation.
 I'm using python 3.10.13 at development time, but you can try other version, depending on your OBS version.  
@@ -59,13 +64,13 @@ https://github.com/obsproject/obs-studio/releases/download/30.1.2/OBS-Studio-30.
 
 The module matplotlib is only needed for development, while plotting WAV files, in order to "see" the line code.  
 
-## MacOS arm64
+<h2 id="macos-install">MacOS arm64</h2>
 
-Not working in MacOS.
 
+Work in progress.
 <br>
 
-## Ubuntu {#ubuntu-install}
+<h2 id="ubuntu-install">Ubuntu</h2>
 
 1. ### Install OBS 
     ```
