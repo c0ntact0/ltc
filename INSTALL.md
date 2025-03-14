@@ -1,6 +1,10 @@
-# Python
+# Table of contents
 
+- [Python](##Python)
+- [Windows](##Windows)
+- [Ubuntu](#ubuntu-install)
 
+## Python
 
 https://obsinfo.readthedocs.io/en/master/installation.html
 
@@ -61,7 +65,7 @@ Not working in MacOS.
 
 <br>
 
-## Ubuntu
+## Ubuntu {#ubuntu-install}
 
 1. ### Install OBS 
     ```
