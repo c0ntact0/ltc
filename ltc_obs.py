@@ -1,5 +1,5 @@
 import obspython as obs
-import math,time,os,time
+import time,os,datetime
 from pprint import pprint
 import pyaudio
 import tc
@@ -9,6 +9,7 @@ from edl_manager import Edl, output_formats
 import threading
 import ffmpeg
 from serial_com import SerialPort
+from functools import partial 
 
 #import debugpy
 
@@ -20,9 +21,9 @@ from serial_com import SerialPort
 
 # TODO: continua a dar problemas com cortes no modo timeline
 # TODO: choose if we want the current_cam as reel extension or the cut number
-# TODO: escolher canal de áudio
 
-log_level = (obs.LOG_DEBUG,obs.LOG_INFO,obs.LOG_WARNING,obs.LOG_ERROR)
+# TODO: checkboxes to choose the log level
+log_level = [obs.LOG_DEBUG,obs.LOG_INFO,obs.LOG_WARNING,obs.LOG_ERROR]
 """Types of logs to show"""
 
 audio = pyaudio.PyAudio()
@@ -46,33 +47,39 @@ tick_count=0
 """Counts the ticks (frames)"""
 start_tick_count=0
 """Stores the first tick"""
-source_display=None # OBS source to display the TC
-sources_cams = [] # OBS sources used as cam channels
-source_playout= None # OBS source used for playout
-previous_cam = None # previous visible (selected) camera
+source_display=None
+"""OBS source to display the TC"""
+sources_cams = []
+"""OBS sources used as cam channels (Cut Sources)"""
+source_playout= None
+"""OBS source used for playout"""
+previous_cam = None
+"""previous visible (selected) camera"""
 current_cam = None
-edl_path = os.path.expanduser("~") # path to write the EDL files
+"""Currently selected camera"""
+edl_path = os.path.expanduser("~")
+"""Path to write the EDL files. Defaults to the user home path"""
 display_timeline_tc=False # Use the timeline TC insted of LTC 
-current_video_file=None # last video file recorded
+"""Use the timeline TC instead of LTC """
+current_video_file=None
+"""Last video file recorded to be played out"""
 clipname = None
+"""The clipname used in the edl"""
 edl_format = 'file_32'
-
-sources_handlers = [] # handlers to signal the cam souces visibility
-
-lock = threading.Lock() # lock for the LTC process thread
-lock_cuts = threading.Lock()
-
-hotkeys_num = 5 # maximum hotkeys
-hotkey_ids = []
-
-kill_all = False # to kill all threads
-
+"""The EDL format used. See what formats can be used in the output_formats dict from the edl_manager.py module"""
+# TODO: this may be added to the hotkeys callbacks
+sources_handlers = []
+"""Handlers to signal the cam sources visibility"""
+lock = threading.Lock()
+"""Lock for the LTC process thread"""
+hotkey_ids = {}
+"""This is a dict that have the cam name as key and a tuple (hotkey_id,hotkey_callback) as value"""
+kill_all = False
+"""If true kill all threads"""
 source_change_tc = (0,0,0,0)
 """Store the TC at when the source is changed"""
 source_change_timeline_tc = (0,0,0,0)
 """Store the timeline TC at when the source is changed"""
-
-main_props = None
 
 def print_debug(*values:object, 
              sep: str | None = " ",
@@ -102,7 +109,9 @@ def print_info(*values:object,
 def audio_device_changed(props,p,settings):
     global audio_device
     audio_device = get_audio_device_from_properties(settings)
-    max_channels = audio_device.get('maxInputChannels')
+    max_channels=0
+    if len(audio_device):
+        max_channels = audio_device.get('maxInputChannels')
     p = obs.obs_properties_get(props,'tc_audio_channel')
     if len(audio_device):
         info = "Sample Rate: " + str(int(audio_device.get('defaultSampleRate')))
@@ -126,6 +135,48 @@ def timeline_start_changed(props,p,settings):
 
     return True
 
+def cut_sources_changed(props,p,settings):
+    print_debug(f"cut_sources_changed: {sources_cams}")
+    to_remove = False
+    info = ""
+
+    #it = iter(sources_cams)
+    #cam = next(it)
+    #while cam:
+    #    if not get_source_by_name(cam):
+    #        to_remove = True
+    #        sources_cams.remove(cam)
+    #        info = f"OBS source {cam} does not exist."
+    #        break
+    #    elif sources_cams.count(cam) > 1:
+    #        to_remove = True
+    #        sources_cams.pop(-1)
+    #        info = f"Cut source {cam} already exist."
+    #        break
+    #    cam = next(it)
+
+    for cam in sources_cams:
+        if not get_source_by_name(cam):
+            to_remove = True
+            info += f"OBS source {cam} does not exist."
+            break
+        elif sources_cams.count(cam) > 1:
+            to_remove = True
+            info += f"Cut source {cam} already exist."
+            break
+    
+    if to_remove:
+        #info = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {info}"
+        print_error(info)
+        sources_cams.pop(-1)
+        sources_cams_t = list_to_array_t(sources_cams)
+        obs.obs_data_set_array(settings,'sources_cams',sources_cams_t)
+        
+    obs.obs_data_set_string(settings,'sources_info',info)
+
+    return True
+
+
 #def recording_changed(props,p,*args, **kwargs):
 #    print("recording_changed")
 ##    recording = obs.obs_frontend_recording_active()
@@ -148,67 +199,94 @@ def script_properties():
     print_debug("script_properties")
     
     props = obs.obs_properties_create()
-    main_props = props
     operation_group = obs.obs_properties_create()
-    config_group = obs.obs_properties_create()
-    serial_group = obs.obs_properties_create()
+    config_tc_group = obs.obs_properties_create()
+    config_sources_group = obs.obs_properties_create()
+    config_edl_group = obs.obs_properties_create()
+    config_serial_group = obs.obs_properties_create()
+    miscellaneous_group = obs.obs_properties_create()
+    logging_group = obs.obs_properties_create()
 
     obs.obs_properties_add_group(props,'operation_group',"Operation",obs.OBS_GROUP_NORMAL,operation_group)
-    obs.obs_properties_add_group(props,'config_group',"Configuration",obs.OBS_GROUP_NORMAL,config_group)
-    obs.obs_properties_add_group(props,'serial_group',"Serial Port",obs.OBS_GROUP_NORMAL,serial_group)
+    obs.obs_properties_add_group(props,'config_tc_group',"LTC Configuration",obs.OBS_GROUP_NORMAL,config_tc_group)
+    obs.obs_properties_add_group(props,'config_sources_group',"Sources Configuration",obs.OBS_GROUP_NORMAL,config_sources_group)
+    obs.obs_properties_add_group(props,'config_edl_group',"EDL Configuration",obs.OBS_GROUP_NORMAL,config_edl_group)
+    obs.obs_properties_add_group(props,'config_serial_group',"Serial Port Configuration",obs.OBS_GROUP_NORMAL,config_serial_group)
+    obs.obs_properties_add_group(props,'miscellaneous_group',"Miscellaneous Configuration",obs.OBS_GROUP_NORMAL,miscellaneous_group)
+    obs.obs_properties_add_group(props,'logging_group',"Logging Configuration",obs.OBS_GROUP_NORMAL,logging_group)
 
+
+    # ======== Operation =========
     obs.obs_properties_add_button(operation_group,'button_record_control',"Start Recording",lambda props,prop: True if record_control(props,prop) else True)
     #clipname = 
     obs.obs_properties_add_text(operation_group,'clipname',"Clipname",obs.OBS_TEXT_DEFAULT)
 
-    obs.obs_properties_add_button(config_group,"button_run_tc","Start LTC capture",lambda props,prop: True if run_tc(props,prop) else True)
+    # ======== TC =========
+    obs.obs_properties_add_button(config_tc_group,"button_run_tc","Start LTC capture",lambda props,prop: True if run_tc(props,prop) else True)
 
-    list_devices = obs.obs_properties_add_list(config_group,"audio_device","Device name",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    list_devices = obs.obs_properties_add_list(config_tc_group,"audio_device","Audio device",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_devices_names(list_devices)
         
-    channels_list = obs.obs_properties_add_list(config_group,"tc_audio_channel","Channel",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
+    channels_list = obs.obs_properties_add_list(config_tc_group,"tc_audio_channel","Channel",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_tc_audio_channels(channels_list,TC_MAX_CHANNELS)
 
     
-    obs.obs_properties_add_button(config_group, "button_refresh_devices", "Refresh list of devices",
+    obs.obs_properties_add_button(config_tc_group, "button_refresh_devices", "Refresh list of devices",
     lambda props,prop: True if populate_list_property_with_devices_names(list_devices) else True)
 
-    obs.obs_properties_add_text(config_group, "info", "", obs.OBS_TEXT_INFO)
+    obs.obs_properties_add_text(config_tc_group, "info", "", obs.OBS_TEXT_INFO)
 
-    list_fps = obs.obs_properties_add_list(config_group,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
+    list_fps = obs.obs_properties_add_list(config_tc_group,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_fps(list_fps)
     
-    obs.obs_properties_add_int_slider(config_group,'slider_chunk',"Buffer Size",1,1024,1)
+    obs.obs_properties_add_int_slider(config_tc_group,'slider_chunk',"Buffer Size",1,1024,1)
 
-    list_sources_display = obs.obs_properties_add_list(config_group,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    list_sources_display = obs.obs_properties_add_list(config_tc_group,'source_display',"TC display source", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_display_sources(list_sources_display)
 
-    display_timeline_tc = obs.obs_properties_add_bool(config_group,'display_timeline_tc',"Use Timeline TC (Experimental)")
+    display_timeline_tc = obs.obs_properties_add_bool(config_tc_group,'display_timeline_tc',"Use Timeline TC (Experimental)")
     obs.obs_property_set_long_description(display_timeline_tc,"Use timeline TC when recording. Display the TC when recording only.")
-    timeline_start = obs.obs_properties_add_text(config_group,'timeline_start',"Timeline Start TC",obs.OBS_TEXT_DEFAULT)
-    obs.obs_properties_add_text(config_group,'timeline_start_info',"",obs.OBS_TEXT_INFO)
+    timeline_start = obs.obs_properties_add_text(config_tc_group,'timeline_start',"Timeline Start TC",obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(config_tc_group,'timeline_start_info',"",obs.OBS_TEXT_INFO)
     
-    
+    # ======== Sources =========
+    sources_info = obs.obs_properties_add_text(config_sources_group,'sources_info',"",obs.OBS_TEXT_INFO)
+    obs.obs_property_text_set_info_type(sources_info,obs.OBS_TEXT_INFO_ERROR)
+    sources_prop = obs.obs_properties_add_editable_list(config_sources_group,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"","")
     obs.obs_property_set_long_description(
-        obs.obs_properties_add_editable_list(config_group,'sources_cams',"Cut Sources",obs.OBS_EDITABLE_LIST_TYPE_STRINGS,"",""),
-        "To assign a keyboard key to a Source Cam, restart the script and go to File->Settings->Hotkeys.")
-    list_source_playout = obs.obs_properties_add_list(config_group,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+        sources_prop,
+        "To assign a keyboard key to a new Cut Source go to the OBS menu File->Settings->Hotkeys.")
+
+    
+    list_source_playout = obs.obs_properties_add_list(config_sources_group,'source_playout',"Source for Playout",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_sources(list_source_playout,'ffmpeg_source')
 
-    edl_format_lis = obs.obs_properties_add_list(config_group,'edl_format',"Edl Format",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    # ======== Edl =========
+    edl_format_lis = obs.obs_properties_add_list(config_edl_group,'edl_format',"Edl Format",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_edl_types(edl_format_lis)
     
-    obs.obs_properties_add_path(config_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
+    obs.obs_properties_add_path(config_edl_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
 
-    dock_state = obs.obs_properties_add_bool(config_group,'dock_state',"Apply Dock State")
-    obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
-
-    list_serial_port = obs.obs_properties_add_list(serial_group,'serial_port',"Serial Ports",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
+    # ======== Serial =========
+    list_serial_port = obs.obs_properties_add_list(config_serial_group,'serial_port',"Serial Ports",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_serial_ports(list_serial_port)
 
+
+    # ======== Miscellaneous =========
+    dock_state = obs.obs_properties_add_bool(miscellaneous_group,'dock_state',"Apply Dock State")
+    obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
+    
+    # ======== Logging =========
+    obs.obs_properties_add_bool(logging_group,'log_info',"Log Info Messages")
+    obs.obs_properties_add_bool(logging_group,'log_warning',"Log Warning Messages")
+    obs.obs_properties_add_bool(logging_group,'log_error',"Log Error Messages")
+    obs.obs_properties_add_bool(logging_group,'log_debug',"Log Debug Messages")
+    
     # CALLBACKS
     obs.obs_property_set_modified_callback(list_devices, audio_device_changed)
     obs.obs_property_set_modified_callback(timeline_start, timeline_start_changed)
+
+    obs.obs_property_set_modified_callback(sources_prop,cut_sources_changed)
    
    # This must be here because we need the Cut Sources values to get the current cam number
     if serialPort.is_open:
@@ -226,49 +304,71 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings, "info", "")
     obs.obs_data_set_default_string(settings, "clipname", "")
     
+    # TODO: error when reloading the script or getting defaults
     #sources = obs.obs_enum_sources()
     #sources_names = [obs.obs_source_get_name(source) for source in sources]
-    #sources_t = list_to_array_t(sources_names)
+    #sources_names_str = []
+    #for s in sources_names:
+    #    if s.startswith("CAM"):
+    #        sources_names_str.append(s)
+    #        
+    #print(sources_names_str)
+
+    #sources_t = list_to_array_t(sources_names_str)
     #obs.obs_data_set_default_array(settings, "sources_cams", sources_t)
     #obs.source_list_release(sources)
     #obs.obs_data_array_release(sources_t)
 
+
+
     obs.obs_data_set_default_int(settings,'fps',25)
-    obs.obs_data_set_default_int(settings,'slider_chunk',1024)
+    obs.obs_data_set_default_int(settings,'slider_chunk',24)
     obs.obs_data_set_default_string(settings, "source_display", "")
     obs.obs_data_set_default_string(settings, "source_playout", "")
     obs.obs_data_set_default_bool(settings,'display_timeline_tc',False)
     obs.obs_data_set_default_string(settings,'timeline_start',"00:00:00:00")
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
+    obs.obs_data_set_default_string(settings,'sources_info',"")
     obs.obs_data_set_default_string(settings,'edl_format',"file_32")
     obs.obs_data_set_default_string(settings,'edl_path',os.path.expanduser("~"))
     obs.obs_data_set_default_bool(settings,'dock_state',True)
     obs.obs_data_set_default_string(settings,'serial_port',"")
-    
 
+    obs.obs_data_set_default_bool(settings,'log_info',True)
+    obs.obs_data_set_default_bool(settings,'log_warning',True)
+    obs.obs_data_set_default_bool(settings,'log_error',True)
+    obs.obs_data_set_default_bool(settings,'log_debug',True)
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname,hotkey_ids, t_tc, CHUNK, edl_format, TC_CHANNEL, TC_MAX_CHANNELS
+    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname,hotkey_ids, t_tc, CHUNK, edl_format, TC_CHANNEL, TC_MAX_CHANNELS, log_level
     print_debug("script_update")
     clipname = obs.obs_data_get_string(settings,'clipname')
     audio_device = get_audio_device_from_properties(settings)
-    TC_MAX_CHANNELS = int(audio_device.get('maxInputChannels'))
+    try:
+        TC_MAX_CHANNELS = int(audio_device.get('maxInputChannels',1))
+    except TypeError:
+        print_warning("No audio device for LTC.")
+        
     TC_CHANNEL = obs.obs_data_get_int(settings,'tc_audio_channel')
     fps = obs.obs_data_get_int(settings,'fps')
     CHUNK = obs.obs_data_get_int(settings,'slider_chunk')
     source_display = obs.obs_data_get_string(settings,'source_display')
     source_playout = obs.obs_data_get_string(settings,'source_playout')
     display_timeline_tc = obs.obs_data_get_bool(settings,'display_timeline_tc')
-    sources_cams_array = obs.obs_data_get_array(settings,"sources_cams")
-    sources_cams = array_t_to_list(sources_cams_array)
-    print_debug(f"cut sources {sources_cams}")
-    obs.obs_data_array_release(sources_cams_array)
+    try:
+        sources_cams_array = obs.obs_data_get_array(settings,"sources_cams")
+        sources_cams = array_t_to_list(sources_cams_array)
+        print_debug(f"Cut sources {sources_cams}")
+        obs.obs_data_array_release(sources_cams_array)
+    except:
+        print_error("Please choose cut sources")
     
     # this is needed for the script reload from OBS GUI
-    add_souces_handlers()
+    if len(sources_cams) > 0:
+        add_souces_handlers()
     
-    register_hot_keys(settings)
-    print_debug(f"hotkeys {hotkey_ids}")
+        register_hot_keys(settings)
+        print_debug(f"hotkeys {hotkey_ids}")
 
     
     # just for testing
@@ -289,7 +389,7 @@ def script_update(settings):
             serialPort.inicialize_port(obs.obs_data_get_string(settings,'serial_port'))
 
             if serialPort.is_open:
-                #TODO: replace with timer
+                #TODO: replace with timer, or not :-)
                 t = threading.Thread(target=read_from_serial)
                 t.start()
         except Exception as e:
@@ -298,7 +398,13 @@ def script_update(settings):
     if not t_tc: 
         t_tc = threading.Thread(target=process_tc_thread)
         t_tc.start()
-        
+
+    # Logging
+    log_level.clear()
+    if obs.obs_data_get_bool(settings,'log_info'): log_level.append(obs.LOG_INFO)
+    if obs.obs_data_get_bool(settings,'log_warning'): log_level.append(obs.LOG_WARNING)
+    if obs.obs_data_get_bool(settings,'log_error'): log_level.append(obs.LOG_ERROR)
+    if obs.obs_data_get_bool(settings,'log_debug'): log_level.append(obs.LOG_DEBUG)
         
     print_info("Current Profile:",obs.obs_frontend_get_current_profile())
 
@@ -313,7 +419,7 @@ def script_load(settings):
         obs_main_version = int(obs.obs_get_version_string().split('.')[0])
         print_info("OBS Version:",obs.obs_get_version_string())
         if obs_main_version >= 31:
-            config = obs.obs_frontend_get_app_config()
+            config = obs.obs_frontend_get_user_config()
         else:
             config = obs.obs_frontend_get_global_config()
         #config = obs.obs_frontend_get_global_config()
@@ -339,8 +445,8 @@ def script_unload():
         serialPort.stop()
         serialPort.close_port()
     
-    del tcObj
-    del edlObj
+    if tcObj: del tcObj
+    if edlObj: del edlObj
         
 def script_save(settings):
     save_hotkeys(settings)
@@ -349,30 +455,41 @@ def script_save(settings):
 # HOT_KEYS
 def register_hot_keys(settings):
     global hotkey_ids
-    for i in range(len(hotkey_ids)):
-        current_hotkey_id = i+1        
-        f_name = "hotkey_id_"+ str(current_hotkey_id) + "_callback"
-        obs.obs_hotkey_unregister(f_name)
-            
+
+    # Removes callbacks and hotkeys for removed source cams
+    removed_cams = []
+    for cam,hotkey_id in hotkey_ids.items():
+        if cam not in sources_cams:
+            f_name = f"hotkey_id_{cam.lower()}_callback"
+            obs.obs_hotkey_unregister(hotkey_id[1])
+            removed_cams.append(cam)
+            print_debug(f"hotkey_id {cam} and {f_name} callback removed")
+    for cam in removed_cams:
+        hotkey_ids.pop(cam)
     
-    hotkey_ids = [obs.OBS_INVALID_HOTKEY_ID for i in range(len(sources_cams))]
-    for i in range(len(hotkey_ids)):
-        description = "Select CAM" + str(i+1)
-        current_hotkey_id = i+1        
-        #hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description,eval("hotkey_id_" + str(i+1) + "_callback"))
-        f_name = "hotkey_id_"+ str(current_hotkey_id) + "_callback"
-        code = "def " +  f_name +"(pressed):\n    if pressed:\n        set_current_cam("+ str(current_hotkey_id) +")\n        write_to_serial(" + str(current_hotkey_id) + ")"
-        x = compile(code,'callback','exec')
-        exec(x)
-        hotkey_ids[i] = obs.obs_hotkey_register_frontend(script_path(),description, eval(f_name))
-        hotkey_save_array = obs.obs_data_get_array(settings, "hotkey_" + str(i))
-        obs.obs_hotkey_load(hotkey_ids[i], hotkey_save_array)
-        obs.obs_data_array_release(hotkey_save_array)
+    # Register hotkeys for new source cam
+    for cam in sources_cams:
+        if cam not in hotkey_ids.keys():
+            description = f"Select {cam}"
+
+            current_hotkey_id = len(hotkey_ids)+1        
+            f_name = f"hotkey_id_{current_hotkey_id}_callback"
+            code = f"def {f_name}(pressed):\n    if pressed:\n        set_current_cam({current_hotkey_id})\n        write_to_serial({current_hotkey_id})"
+            x = compile(code,'callback','single')
+            exec(x)
+
+            hotkey_ids[cam] = (obs.obs_hotkey_register_frontend(cam,description, eval(f_name)),eval(f_name))
+            hotkey_save_array = obs.obs_data_get_array(settings, f"hotkey_{cam}")
+            obs.obs_hotkey_load(hotkey_ids[cam][0], hotkey_save_array)
+            obs.obs_data_array_release(hotkey_save_array)
+
+    save_hotkeys(settings)
 
 def save_hotkeys(settings):
-    for i in range(len(hotkey_ids)):
-        hotkey_save_array = obs.obs_hotkey_save(hotkey_ids[i])
-        obs.obs_data_set_array(settings, "hotkey_" + str(i), hotkey_save_array)
+    print_debug("Saving hotkeys")
+    for k,v in hotkey_ids.items():
+        hotkey_save_array = obs.obs_hotkey_save(v[0])
+        obs.obs_data_set_array(settings, f"hotkey_{k}", hotkey_save_array)
         obs.obs_data_array_release(hotkey_save_array)
 
 # SOURCES HANDLERS AND CALLBACKS
@@ -508,16 +625,16 @@ def populate_list_property_with_display_sources(list_property):
             obs.obs_property_list_add_string(list_property, name, name)
     obs.source_list_release(sources)
 
-def populate_list_property_with_sources(list_property,types:list=None, show_type:bool=False):
+def populate_list_property_with_sources(list_property,types:list=[], show_type:bool=False,add_empty:bool=True):
     sources = obs.obs_enum_sources()
     obs.obs_property_list_clear(list_property)
-    obs.obs_property_list_add_string(list_property, "", "")
+    if add_empty: obs.obs_property_list_add_string(list_property, "", "")
     for source in sources:
         source_id = obs.obs_source_get_unversioned_id(source)
-        if (types and source_id in types) or not types:
+        if (source_id in types) or len(types) == 0:
             name = obs.obs_source_get_name(source)
             display_name = name
-            #print(name,source_id)
+            #print_debug(name,source_id)
             if show_type:
                 display_name+=" [" + source_id + "]"
             obs.obs_property_list_add_string(list_property, display_name, name)
@@ -614,6 +731,8 @@ def to_data_t(value):
 
 def array_t_to_list(array_t):
     length = obs.obs_data_array_count(array_t)
+    if length == 0:
+        return []
     data_t_list = [obs.obs_data_array_item(array_t, i) for i in range(length)]
     
     return [from_data_t(data_t) for data_t in data_t_list]

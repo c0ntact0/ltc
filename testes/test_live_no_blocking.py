@@ -8,8 +8,8 @@ from pprint import pprint
 from tc import Tc
 import numpy as np
 
-CHANNELS = 2
-CHANNEL = 0
+#CHANNELS = 2 # number of channels that the device have
+CHANNEL = 0 # channel to use
 
 def callback(in_data, frame_count, time_info, status):
     #print(np.shape(in_data))
@@ -34,7 +34,8 @@ for i in range(devices):
 print('Input Devices:',input_devices)
 
 try:
-    DEVICE_INDEX = int(input("Please choose a index: "))
+    DEVICE_INDEX = int(input("Please choose a device index: "))
+    CHANNEL = int(input("Please choose a channel: "))
 except Exception:
     print("Some error occurred.")
     exit()
@@ -45,11 +46,10 @@ device_info = p.get_device_info_by_index(DEVICE_INDEX)
 pprint(device_info)
 RATE = int(device_info.get('defaultSampleRate'))
 CHUNK=24
-#CHANNELS = int(device_info.get('maxInputChannels'))
+CHANNELS = int(device_info.get('maxInputChannels'))
 RECORD_SECONDS=5
 WAVE_OUTPUT_FILE='D:\LTC_PROJECT\input_test_8bits.wav'
 FORMAT=pyaudio.paInt24
-#CHANNELS=device_info.get()
 tcObj = Tc(RATE,25) #TODO: ver como lidar com os samples
 try:   
     stream = p.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=RATE,channels=CHANNELS,frames_per_buffer=CHUNK,stream_callback=callback)
@@ -58,6 +58,8 @@ except OSError as error:
     if error.errno == -9998:
         print("Choose a correct DEVICE_INDEX.")
     exit()
+
+
 print ("recording...")
 
 sair = input()
