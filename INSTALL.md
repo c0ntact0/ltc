@@ -141,5 +141,8 @@ Work in progress.
     ```
 
 # Usefull links
-Unofficial reference:  
-https://github.com/upgradeQ/Streaming-Software-Scripting-Reference
+Official reference: 
+https://docs.obsproject.com/  
+Unofficial reference: 
+https://github.com/upgradeQ/Streaming-Software-Scripting-Reference  
+OBS Forums: https://obsproject.com/forum/
