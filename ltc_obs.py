@@ -1,5 +1,5 @@
 import obspython as obs
-import time,os,datetime
+import time,os,sys
 from pprint import pprint
 import pyaudio
 import tc
@@ -104,8 +104,17 @@ def print_info(*values:object,
              end: str | None = "\n"):
     
     if obs.LOG_INFO in log_level: print("INFO:",*values,sep=sep,end=end)
-        
-# OBS CALLBACKS
+
+
+def get_version():
+    versions_file = os.path.join(script_path(),'VERSIONS.md')
+    if not os.path.exists(versions_file):
+        return "Versions file does not exist."
+    
+    with open(versions_file,'r') as f:
+        return f.readline().strip("- ").strip("\n")
+
+# OBS PROPS CALLBACKS
 def audio_device_changed(props,p,settings):
     global audio_device
     audio_device = get_audio_device_from_properties(settings)
@@ -190,7 +199,8 @@ def cut_sources_changed(props,p,settings):
 
 # OBS FUNCTIONS
 def script_description():
-    return """- Configure all settings
+    return f"""LTC-OBS ({get_version()})
+- Configure all settings
 - Press "Start LTC capture" to capture the external LTC
 - Press "Start Recording" to start the recorder and external LTC capture.
     """
