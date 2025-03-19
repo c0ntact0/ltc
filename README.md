@@ -22,6 +22,7 @@ This is a Python plugin script for use with Open Broadcaster Software (OBS). The
     - [Equipment](#equipment)
     - [Known Issues](#issues)
 - [Motivation and Goals of This Project](#motivation)
+- [Version history](VERSIONS.md)
 
 <h2 id="features">Features</h2>
 
