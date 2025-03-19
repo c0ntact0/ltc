@@ -73,14 +73,15 @@ class Edl():
 
         return self.output_format['id_formatter'].format(cut_number)
     
-    def add_cut_in(self,reel:str,clipname:str,tc_in:str,timeline_in:str,reel_extension:None):
+    def add_cut_in(self,reel:str,clipname:str,tc_in:str,timeline_in:str,reel_extension:None, invert_reel:bool=False):
         if not reel_extension:
             reel_extension=self._cut_counter
         self._cut_counter+=1
         cut_id = self.create_cut_id(self._cut_counter)
+        formatted_reel = f"{reel_extension}.{reel}" if invert_reel else f"{reel}.{reel_extension}"
         cut = {
             "id":cut_id,
-            "reel":f"{reel}.{reel_extension}",
+            "reel":formatted_reel,
             "clipname":clipname,
             "tc_in":tc_in,
             "tc_out":"",
@@ -128,14 +129,6 @@ class Edl():
                 f_diff = ' ' * (self.output_format['reel_size'] - len(cut['reel']))
                 formatted_reel = cut['reel'] + f_diff
                 formatted_reel = formatted_reel[0:self.output_format['reel_size']]
-                #if self._output_format == 'file_32':
-                #    f_diff = ' ' * (32 - len(cut['reel']))
-                #    formatted_reel = cut['reel'] + f_diff
-                #    formatted_reel = formatted_reel[0:32]
-                #else:
-                #    f_diff = ' ' * (8 - len(cut['reel']))
-                #    formatted_reel = cut['reel'] + f_diff
-                #    formatted_reel = formatted_reel[0:8]
             
                 f.write(f"{cut['id']}  {formatted_reel} V{' ' * 5}C{' ' * 8}{cut['tc_in']} {cut['tc_out']} {cut['timeline_in']} {cut['timeline_out']}\n")
                 # if self._output_format == 'file_32':

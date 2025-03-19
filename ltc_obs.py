@@ -80,6 +80,8 @@ source_change_tc = (0,0,0,0)
 """Store the TC at when the source is changed"""
 source_change_timeline_tc = (0,0,0,0)
 """Store the timeline TC at when the source is changed"""
+invert_reel = False
+"""Invert the EDL reel, e.g. instead of filename.cam_name, cam_name.filename."""
 
 def print_debug(*values:object, 
              sep: str | None = " ",
@@ -149,21 +151,6 @@ def cut_sources_changed(props,p,settings):
     to_remove = False
     info = ""
 
-    #it = iter(sources_cams)
-    #cam = next(it)
-    #while cam:
-    #    if not get_source_by_name(cam):
-    #        to_remove = True
-    #        sources_cams.remove(cam)
-    #        info = f"OBS source {cam} does not exist."
-    #        break
-    #    elif sources_cams.count(cam) > 1:
-    #        to_remove = True
-    #        sources_cams.pop(-1)
-    #        info = f"Cut source {cam} already exist."
-    #        break
-    #    cam = next(it)
-
     for cam in sources_cams:
         if not get_source_by_name(cam):
             to_remove = True
@@ -183,6 +170,15 @@ def cut_sources_changed(props,p,settings):
         
     obs.obs_data_set_string(settings,'sources_info',info)
 
+    return True
+
+def invert_reel_changed(props,p,settings):
+    
+    if invert_reel:
+        obs.obs_data_set_string(settings,'invert_reel_info',f"{current_cam}.{Edl('').date_string}")
+    else:
+        obs.obs_data_set_string(settings,'invert_reel_info',f"{Edl('').date_string}.{current_cam}")
+        
     return True
 
 
@@ -275,6 +271,9 @@ def script_properties():
     edl_format_lis = obs.obs_properties_add_list(config_edl_group,'edl_format',"Edl Format",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_edl_types(edl_format_lis)
     
+    invert_reel = obs.obs_properties_add_bool(config_edl_group,'invert_reel',"Invert Reel Name and Reel Extension")
+    obs.obs_properties_add_text(config_edl_group,'invert_reel_info',"Reel Preview",obs.OBS_TEXT_INFO)
+    
     obs.obs_properties_add_path(config_edl_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
 
     # ======== Serial =========
@@ -295,8 +294,8 @@ def script_properties():
     # CALLBACKS
     obs.obs_property_set_modified_callback(list_devices, audio_device_changed)
     obs.obs_property_set_modified_callback(timeline_start, timeline_start_changed)
-
     obs.obs_property_set_modified_callback(sources_prop,cut_sources_changed)
+    obs.obs_property_set_modified_callback(invert_reel,invert_reel_changed)
    
    # This must be here because we need the Cut Sources values to get the current cam number
     if serialPort.is_open:
@@ -340,6 +339,7 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
     obs.obs_data_set_default_string(settings,'sources_info',"")
     obs.obs_data_set_default_string(settings,'edl_format',"file_32")
+    obs.obs_data_set_default_string(settings,'invert_sources_info',f"{Edl('').date_string}.{current_cam}")
     obs.obs_data_set_default_string(settings,'edl_path',os.path.expanduser("~"))
     obs.obs_data_set_default_bool(settings,'dock_state',True)
     obs.obs_data_set_default_string(settings,'serial_port',"")
@@ -350,7 +350,9 @@ def script_defaults(settings):
     obs.obs_data_set_default_bool(settings,'log_debug',True)
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam,display_timeline_tc,clipname,hotkey_ids, t_tc, CHUNK, edl_format, TC_CHANNEL, TC_MAX_CHANNELS, log_level
+    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam, \
+        display_timeline_tc,clipname,hotkey_ids, t_tc, CHUNK, edl_format, TC_CHANNEL, TC_MAX_CHANNELS, log_level, invert_reel
+    
     print_debug("script_update")
     clipname = obs.obs_data_get_string(settings,'clipname')
     audio_device = get_audio_device_from_properties(settings)
@@ -391,6 +393,7 @@ def script_update(settings):
         obs.obs_data_set_string(settings,'timeline_start_info',"Format error, must be: hh:mm:ss:ff")
         
     edl_format = obs.obs_data_get_string(settings,'edl_format')
+    invert_reel = obs.obs_data_get_bool(settings,'invert_reel')
     edl_path = obs.obs_data_get_string(settings,'edl_path')
     current_cam,cam_number = get_current_cam_name()
     
@@ -943,7 +946,8 @@ def process_tc_thread(): # this start in script_update
                             file_reel,
                             current_tc_string,
                             tc.tc2String(tc.frames2tc(timeline_start,fps)) if display_timeline_tc else current_tc_string,
-                            current_cam) # using the different TC in both TCs
+                            current_cam,
+                            invert_reel)
                         print_info("MARK:",current_tc_string,timeline_tc_string,current_cam)
                     elif new_cam and recording and edlObj.cut_counter > 0:
                         #edlObj.add_cut_out(
@@ -955,9 +959,9 @@ def process_tc_thread(): # this start in script_update
                         #    mark_tc_string,
                         #    mark_timeline_tc_string,
                         #    current_cam)
-                        t_cut = threading.Thread(target=add_cut_callback,args=(edlObj,file_reel,file_reel,mark_tc_string,mark_timeline_tc_string,current_cam))
-                        t_cut.start()
                         #print_info("MARK:",current_tc_string,timeline_tc_string,current_cam)
+                        t_cut = threading.Thread(target=add_cut_callback,args=(edlObj,file_reel,file_reel,mark_tc_string,mark_timeline_tc_string,current_cam,invert_reel))
+                        t_cut.start()
                     elif not new_cam and not recording and edlObj.cut_counter > 0:
                         mark_timeline_tc_string = tc.tc2String(tc.frames2tc(timeline_start + tick_count,fps)) if display_timeline_tc else tc.tc2String(tc.frames2tc(tc.tc2frames(clip_tc,fps) + tick_count,fps))
                         edlObj.add_cut_out(
@@ -998,11 +1002,12 @@ def add_cut_callback(edlObj:Edl,
                      mark_tc_string,
                      mark_timeline_tc_string,
                      current_cam,
+                     invert_edl_reel,
                      cut_out=True,
                      cut_in=True
                      ):
     if cut_out: edlObj.add_cut_out(mark_tc_string,mark_timeline_tc_string)
-    if cut_in: edlObj.add_cut_in(file_reel,clipname,mark_tc_string,mark_timeline_tc_string,current_cam)
+    if cut_in: edlObj.add_cut_in(file_reel,clipname,mark_tc_string,mark_timeline_tc_string,current_cam,invert_edl_reel)
     print_info("MARK:",mark_tc_string,mark_timeline_tc_string,current_cam)
     
 
