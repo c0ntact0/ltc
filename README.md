@@ -77,6 +77,11 @@ The scene appears as follows:
 1. In the **Scripts** tab, click the plus (**+**) button.   
 1. Navigate to the **LTC-OBS** folder and select the **ltc-obs.py** script file.   
 
+If you get this error:   
+> OSError: [Errno -10000] PortAudio not initialized   
+
+please reload the script.
+
 <h2 id="script_conf">Script Configuration</h2>
 <h3 id="ltc_conf">LTC Configuration</h3>
 
