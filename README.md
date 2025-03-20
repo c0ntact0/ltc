@@ -1,4 +1,4 @@
-<h1>LTC in OBS</h1>
+<h1>LTC for OBS</h1>
 
 <div align="justify">
 This is a Python plugin script for use with Open Broadcaster Software (OBS). The main objective was to enable the capture of an LTC signal through an audio input. However, additional features have been added, which are summarized in the features section.
