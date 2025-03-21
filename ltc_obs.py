@@ -9,8 +9,7 @@ from edl_manager import Edl, output_formats
 import threading
 import ffmpeg
 from serial_com import SerialPort
-from functools import partial 
-
+from pprint import pformat
 #import debugpy
 
 #debugpy.configure(python=r"C:\Users\rui.loureiro\AppData\Local\miniforge3\envs\obs\python.exe")
@@ -83,6 +82,7 @@ source_change_timeline_tc = (0,0,0,0)
 invert_reel = False
 """Invert the EDL reel, e.g. instead of filename.cam_name, cam_name.filename."""
 
+# print functions
 def print_debug(*values:object, 
              sep: str | None = " ",
              end: str | None = "\n"):
@@ -109,6 +109,13 @@ def print_info(*values:object,
 
 
 def get_version():
+    """
+        Get the script version from the VERSIONS.md file
+        
+        Returns
+        -------
+        A string with the version
+    """
     versions_file = os.path.join(script_path(),'VERSIONS.md')
     if not os.path.exists(versions_file):
         return "Versions file does not exist."
@@ -118,23 +125,29 @@ def get_version():
 
 # OBS PROPS CALLBACKS
 def audio_device_changed(props,p,settings):
+    """
+        Called when the list_devices property change. Populates the tc_audio_channel property
+        with the channels from the selected device. Update the sample_rate_info property text.
+    """
     global audio_device
     audio_device = get_audio_device_from_properties(settings)
     max_channels=0
     if len(audio_device):
         max_channels = audio_device.get('maxInputChannels')
-    p = obs.obs_properties_get(props,'tc_audio_channel')
-    if len(audio_device):
         info = "Sample Rate: " + str(int(audio_device.get('defaultSampleRate')))
     else:
         info = "No info available"
-    obs.obs_data_set_string(settings,'info',info)
     
+    obs.obs_data_set_string(settings,'info',info)
+    p = obs.obs_properties_get(props,'tc_audio_channel')
     populate_list_property_with_tc_audio_channels(p,max_channels)
     
     return True
 
 def timeline_start_changed(props,p,settings):
+    """
+        Called when the timeline_start property change. Update the timeline_start_info property text.
+    """
     p = obs.obs_properties_get(props,'timeline_start_info')
     timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),fps)
     if timeline_start:
@@ -147,6 +160,10 @@ def timeline_start_changed(props,p,settings):
     return True
 
 def cut_sources_changed(props,p,settings):
+    """
+        Called when the sources_cams change. Validates the entry.
+    """
+    global sources_cams
     print_debug(f"cut_sources_changed: {sources_cams}")
     to_remove = False
     info = ""
@@ -167,13 +184,19 @@ def cut_sources_changed(props,p,settings):
         sources_cams.pop(-1)
         sources_cams_t = list_to_array_t(sources_cams)
         obs.obs_data_set_array(settings,'sources_cams',sources_cams_t)
+        if len(sources_cams) > 0:
+            add_souces_handlers()
+            register_hot_keys(settings)
+            print_debug(f"hotkeys\n {pformat(hotkey_ids)}")
         
     obs.obs_data_set_string(settings,'sources_info',info)
 
     return True
 
 def invert_reel_changed(props,p,settings):
-    
+    """
+        Called when the invert_reel property change. Update the invert_reel_info property text.
+    """
     if invert_reel:
         obs.obs_data_set_string(settings,'invert_reel_info',f"{current_cam}.{Edl('').date_string}")
     else:
@@ -181,7 +204,7 @@ def invert_reel_changed(props,p,settings):
         
     return True
 
-
+# TODO: Start/Stop record using the OBS controls dock
 #def recording_changed(props,p,*args, **kwargs):
 #    print("recording_changed")
 ##    recording = obs.obs_frontend_recording_active()
@@ -223,24 +246,23 @@ def script_properties():
 
 
     # ======== Operation =========
-    obs.obs_properties_add_button(operation_group,'button_record_control',"Start Recording",lambda props,prop: True if record_control(props,prop) else True)
+    obs.obs_properties_add_button(operation_group,'button_record_control',"Start Recording",lambda props,p: record_control(props))
     #clipname = 
     obs.obs_properties_add_text(operation_group,'clipname',"Clipname",obs.OBS_TEXT_DEFAULT)
 
     # ======== TC =========
-    obs.obs_properties_add_button(config_tc_group,"button_run_tc","Start LTC capture",lambda props,prop: True if run_tc(props,prop) else True)
+    obs.obs_properties_add_button(config_tc_group,"button_run_tc","Start LTC capture",lambda props,p: run_tc(props))
 
     list_devices = obs.obs_properties_add_list(config_tc_group,"audio_device","Audio device",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
     populate_list_property_with_devices_names(list_devices)
         
     channels_list = obs.obs_properties_add_list(config_tc_group,"tc_audio_channel","Channel",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_tc_audio_channels(channels_list,TC_MAX_CHANNELS)
-
     
     obs.obs_properties_add_button(config_tc_group, "button_refresh_devices", "Refresh list of devices",
-    lambda props,prop: True if populate_list_property_with_devices_names(list_devices) else True)
+    lambda props,p: populate_list_property_with_devices_names(list_devices))
 
-    obs.obs_properties_add_text(config_tc_group, "info", "", obs.OBS_TEXT_INFO)
+    obs.obs_properties_add_text(config_tc_group, "sample_rate_info", "", obs.OBS_TEXT_INFO)
 
     list_fps = obs.obs_properties_add_list(config_tc_group,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_fps(list_fps)
@@ -310,7 +332,7 @@ def script_defaults(settings):
     print_debug("script_defaults")
 
     obs.obs_data_set_default_string(settings, "audio_device", "")
-    obs.obs_data_set_default_string(settings, "info", "")
+    obs.obs_data_set_default_string(settings, "sample_rate_info", "Sample Rate: NA")
     obs.obs_data_set_default_string(settings, "clipname", "")
     
     # TODO: error when reloading the script or getting defaults
@@ -327,8 +349,6 @@ def script_defaults(settings):
     #obs.obs_data_set_default_array(settings, "sources_cams", sources_t)
     #obs.source_list_release(sources)
     #obs.obs_data_array_release(sources_t)
-
-
 
     obs.obs_data_set_default_int(settings,'fps',25)
     obs.obs_data_set_default_int(settings,'slider_chunk',24)
@@ -378,9 +398,8 @@ def script_update(settings):
     # this is needed for the script reload from OBS GUI
     if len(sources_cams) > 0:
         add_souces_handlers()
-    
         register_hot_keys(settings)
-        print_debug(f"hotkeys {hotkey_ids}")
+        print_debug(f"hotkeys\n {pformat(hotkey_ids)}")
 
     
     # just for testing
@@ -467,6 +486,14 @@ def script_save(settings):
 
 # HOT_KEYS
 def register_hot_keys(settings):
+    """
+        Register and removes hotkeys.
+        
+        Parameters
+        ----------
+        settings: obs_data_t
+            OBS settings object
+    """
     global hotkey_ids
 
     # Removes callbacks and hotkeys for removed source cams
@@ -499,6 +526,14 @@ def register_hot_keys(settings):
     save_hotkeys(settings)
 
 def save_hotkeys(settings):
+    """
+        Save the hotkeys to settings
+        
+        Parameters
+        ----------
+        settings: obs_data_t
+            OBS settings object
+    """
     print_debug("Saving hotkeys")
     for k,v in hotkey_ids.items():
         hotkey_save_array = obs.obs_hotkey_save(v[0])
@@ -507,6 +542,9 @@ def save_hotkeys(settings):
 
 # SOURCES HANDLERS AND CALLBACKS
 def add_souces_handlers():
+    """
+        Connect the signal handlers for the show signal to the sources_callback callback function.  
+    """
     global sources_handlers,sources_cams
     print_debug("Configuring source handlers")
 
@@ -524,11 +562,22 @@ def add_souces_handlers():
         obs.obs_source_release(source)
 
 def remove_source_handlers():
+    """
+        Disconnect the signal handlers for the show signal from the sources_callback callback function.  
+    """
     print_debug("Removing source handlers.")
     for h in sources_handlers:
         obs.signal_handler_disconnect(h,"show",sources_callback)    
 
 def sources_callback(calldata):
+    """
+        Called when the show signal is emitted from a OBS source that is connected to this callback.
+        
+        Parameters
+        ----------
+        calldata: calldata_t
+            Data from the connected object
+    """
     global current_cam, source_change_tc,source_change_timeline_tc
     source = obs.calldata_source(calldata,"source")
     current_cam = obs.obs_source_get_name(source)
@@ -539,6 +588,14 @@ def sources_callback(calldata):
 
 
 def on_frontend_event(e):
+    """
+        Called from the obs_frontend_add_event_callback.
+        
+        Parameters
+        ----------
+        e: obs_frontend_event
+            The event type.
+    """
     global edlObj,current_timeline_frame,timeline_start, fps,tcObj,clip_tc,tc_running,tc_stream,tcObj,audio,serialPort, kill_all,tick_count
     if e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTING:
         print_info("Recording Starting...")
@@ -563,7 +620,15 @@ def on_frontend_event(e):
     elif e == obs.OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN:
         remove_source_handlers()
 
-def record_control(probs,bt_rec):
+def record_control(probs):
+    """
+        Controls the start ans stop of the OBS recorder. Called from the button_record_control button property.
+        
+        Parameters
+        ----------
+        probs: obs_properties_t
+            The OBS props object
+    """
     global current_timeline_frame,timeline_start, fps,tcObj, edlObj
     recording = obs.obs_frontend_recording_active()
     bt_rec = obs.obs_properties_get(probs,'button_record_control')
@@ -581,10 +646,10 @@ def record_control(probs,bt_rec):
             video_path = obs.config_get_string(config, "AdvOut", "RecFilePath") or None
         if not video_path or not os.path.exists(video_path):
             print_warning(f"Recording path {video_path} does not exist.")
-            return
+            return True
         set_current_scene("RECORD") #TODO: escolher no script
         if not tc_running:
-            run_tc(probs,bt_rec)
+            run_tc(probs)
             time.sleep(1)
         current_timeline_frame = timeline_start
         current_tc_string = tc.tc2String(tc.frames2tc(timeline_start,fps)) if display_timeline_tc else tcObj.currentTcString
@@ -593,8 +658,22 @@ def record_control(probs,bt_rec):
         obs.obs_property_set_enabled(bt_tc,False)
         obs.obs_frontend_recording_start()
 
+    return True
+
 ################## OBS USER FUNCTIONS
 def get_audio_device_from_properties(settings):
+    """
+        Get the PyAudio device info for the selected audio device.
+        
+        Parameters
+        ----------
+        settings: obs_data_t
+            OBS settings object
+            
+        Returns
+        -------
+            A dict with the device info or a empty dict if the device index does not exist.
+    """
     index_string = obs.obs_data_get_string(settings,"audio_device")
     index_exists = len(index_string) > 0
     #print(index_exists)
@@ -602,12 +681,17 @@ def get_audio_device_from_properties(settings):
     return {} if not index_exists else audio.get_device_info_by_index(index)
 
 def populate_list_property_with_devices_names(list_property):
+    """
+        Populate a property 
+    """
     audio_devices = get_audio_devices(audio)
     obs.obs_property_list_clear(list_property)
     obs.obs_property_list_add_string(list_property, "", "")
     for device in audio_devices:
       obs.obs_property_list_add_string(list_property, f"{device.get('name')} | Channels: {device.get('maxInputChannels')}" , str(device.get('index')))
     #obs.source_list_release(audio_devices)
+    
+    return True
 
 def populate_list_property_with_tc_audio_channels(list_property,max_channels):
     channels = [i for i in range(max_channels)]
@@ -789,7 +873,7 @@ def get_audio_device_by_name(name:str,audio:pyaudio) -> int:
 
 
 
-def run_tc(props,p):
+def run_tc(props):
     global audio_device, tc_stream, tc_running,tcObj,TC_MAX_CHANNELS
     p = obs.obs_properties_get(props,'button_run_tc')
     if tc_running:
@@ -813,18 +897,20 @@ def run_tc(props,p):
             SAMPLE_RATE = int(audio_device.get('defaultSampleRate'))
         except TypeError as e:
             print_error(f"Can't get sample rate from the audio device.")
-            return
+            return True
         try:
             DEVICE_INDEX = int(audio_device.get('index'))
         except TypeError as e:
             print_error(f"Can't get device index from the audio device.")
-            return
+            return True
 
         obs.obs_property_set_description(p,'Stop LTC capture')
         tcObj = Tc(SAMPLE_RATE,fps)
         tc_stream = audio.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=SAMPLE_RATE,channels=TC_MAX_CHANNELS,frames_per_buffer=CHUNK,stream_callback=tc_stream_callback)
         tc_running=True
         print_info("TC Capture Running...")
+        
+    return True
 
 def process_tc_display(tc_string):
     global source_display
