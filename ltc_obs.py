@@ -140,7 +140,7 @@ def audio_device_changed(props,p,settings):
     
     obs.obs_data_set_string(settings,'info',info)
     p = obs.obs_properties_get(props,'tc_audio_channel')
-    populate_list_property_with_tc_audio_channels(p,max_channels)
+    populate_list_property_with_integers(p,max_channels)
     
     return True
 
@@ -257,7 +257,7 @@ def script_properties():
     populate_list_property_with_devices_names(list_devices)
         
     channels_list = obs.obs_properties_add_list(config_tc_group,"tc_audio_channel","Channel",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
-    populate_list_property_with_tc_audio_channels(channels_list,TC_MAX_CHANNELS)
+    populate_list_property_with_integers(channels_list,TC_MAX_CHANNELS)
     
     obs.obs_properties_add_button(config_tc_group, "button_refresh_devices", "Refresh list of devices",
     lambda props,p: populate_list_property_with_devices_names(list_devices))
@@ -682,7 +682,16 @@ def get_audio_device_from_properties(settings):
 
 def populate_list_property_with_devices_names(list_property):
     """
-        Populate a property 
+        Populate a list property with audio device names.
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+            
+        Returns
+        -------
+            True
     """
     audio_devices = get_audio_devices(audio)
     obs.obs_property_list_clear(list_property)
@@ -693,13 +702,36 @@ def populate_list_property_with_devices_names(list_property):
     
     return True
 
-def populate_list_property_with_tc_audio_channels(list_property,max_channels):
-    channels = [i for i in range(max_channels)]
+def populate_list_property_with_integers(list_property,maximum:int,minimum:int=0,step:int=1):
+    """
+        Populate a list property with integers from minimum to maximum using step distance.
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+        maximum: int
+            Maximum number for the list (exclusive) 
+        minimum: int, optional
+            Minimum number for the list (inclusive). Default is 0.
+        step: int, optional
+            Step distance to use between numbers. Default is 1.
+            
+    """
+    channels = [i for i in range(minimum,maximum,step)]
     obs.obs_property_list_clear(list_property)
     for ch in channels:
         obs.obs_property_list_add_int(list_property,f"{ch}",ch)
 
 def populate_list_property_with_fps(list_property):
+    """
+        Populate a list property with frame rates. 
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+    """
     fps_list = [24,25,30]
     obs.obs_property_list_clear(list_property)
     for rate in fps_list:
@@ -707,22 +739,34 @@ def populate_list_property_with_fps(list_property):
     #obs.source_list_release(fps_list)
 
 def populate_list_property_with_edl_types(list_property):
+    """
+        Populate a list property with edl format types. 
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+    """
     obs.obs_property_list_clear(list_property)
     for k in output_formats.keys():
         obs.obs_property_list_add_string(list_property,k,k)
 
-def populate_list_property_with_display_sources(list_property):
-    sources = obs.obs_enum_sources()
-    obs.obs_property_list_clear(list_property)
-    obs.obs_property_list_add_string(list_property, "", "")
-    for source in sources:
-        source_id = obs.obs_source_get_unversioned_id(source)
-        if source_id == "text_gdiplus" or source_id == "text_ft2_source":
-            name = obs.obs_source_get_name(source)
-            obs.obs_property_list_add_string(list_property, name, name)
-    obs.source_list_release(sources)
-
 def populate_list_property_with_sources(list_property,types:list=[], show_type:bool=False,add_empty:bool=True):
+    """
+        Populate a list property with sources name. The sources IDs (types) can be specified to be filtered.
+        By default includes a empty entry a the top of the list.
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+        types: list(int), optional
+            The types of sources to add to the list. Default is a empty list.
+        show_type:bool, optional
+            Show the source type between square brackets after the source name. Default is False. 
+        add_empty: bool, optional
+            If True add a empty entry to the top of the list. Default is True.
+    """
     sources = obs.obs_enum_sources()
     obs.obs_property_list_clear(list_property)
     if add_empty: obs.obs_property_list_add_string(list_property, "", "")
@@ -736,13 +780,33 @@ def populate_list_property_with_sources(list_property,types:list=[], show_type:b
                 display_name+=" [" + source_id + "]"
             obs.obs_property_list_add_string(list_property, display_name, name)
     obs.source_list_release(sources)
+    
+def populate_list_property_with_display_sources(list_property):
+    """
+        Populate a list property with text display sources names (text_gdiplus and text_ft2_source). 
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+    """
+    populate_list_property_with_sources(list_property,["text_gdiplus","text_ft2_source"])
 
 def populate_list_property_with_serial_ports(list_property):
+    """
+        Populate a list property with a serial ports list. 
+        
+        Parameters
+        ----------
+        list_property: obs_property_t
+            The list property to populate
+    """
     serial_ports = serialPort.get_serial_ports()
     obs.obs_property_list_clear(list_property)
     for port,desc,hwid in serial_ports:
         obs.obs_property_list_add_string(list_property,desc,port)
 
+ # Not used
 def get_sceneitem_from_source_name_in_current_scene(name):
     result_sceneitem = None
     current_scene_as_source = obs.obs_frontend_get_current_scene()
@@ -755,6 +819,19 @@ def get_sceneitem_from_source_name_in_current_scene(name):
     return result_sceneitem
 
 def get_source_by_name(name:str):
+    """
+        Get a source from the current scene using the source name.
+        
+        Parameters
+        ----------
+        name: str
+            The name of the source to get.
+            
+        Returns
+        -------
+        A obs_sceneitem_t object
+    """
+    
     result_source = None
     current_scene_have_source = obs.obs_frontend_get_current_scene()
     if current_scene_have_source:
