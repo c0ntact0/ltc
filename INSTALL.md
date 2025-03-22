@@ -1,4 +1,4 @@
-# LTC in OBS installation instructions
+# LTC for OBS installation instructions
 
 ## Table of contents
 
