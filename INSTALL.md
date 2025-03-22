@@ -5,6 +5,7 @@
 - [OBS General Python](#obs-python)
 - [Windows](#windows-install)
 - [MacOS arm64](#macos-install)
+    - [Timecode Clock generator for MacOS](#mac-ltc-generator)
 - [Ubuntu](#ubuntu-install)
 
 <h2 id="obs-python">OBS General Python Instructions</h2>
@@ -66,7 +67,7 @@ The module matplotlib is only needed for development, while plotting WAV files, 
 
 <h2 id="macos-install">MacOS arm64</h2>
 
-**Warning!** LTC it's not fully tested on MacOS.
+**Warning!** LTC it's not yet fully tested on MacOS. Tests are undergoing.
 
 If you have conda please get out of any environment:
 ````
@@ -118,6 +119,11 @@ conda deactivate
     python3.11 -m pip install jsonschema jsonref python-gitlab obspy pyyaml
     ````   
 <br>
+
+<h3 id="mac-ltc-generator">Timecode Clock generator for MacOS</h3>
+
+You can use this timecode generator for tests and more.
+https://help.millumin.com/docs/connect/free-applications
 
 <h2 id="ubuntu-install">Ubuntu</h2>
 

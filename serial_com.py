@@ -10,7 +10,7 @@ class SerialPort():
 
     @property
     def is_open(self):
-        return True if self._serial_obj else False
+        return True if self._serial_obj and self._serial_obj.is_open else False
     @property
     def serial_obj(self):
         return self._serial_obj
@@ -30,12 +30,15 @@ class SerialPort():
             self._serial_obj = serial.Serial(port,baudrate,bytesize,parity,stopbits)
             time.sleep(3) # wait for arduino init
         except serial.SerialException as e:
-            print('Error opening port:',e)
+            print(f'ERROR: while trying to open serial port:\n{e}')
         else:
-            print('Serial port',port,'opened.')
+            print(f'INFO: Serial port {port} opened.')
 
     def close_port(self):
-        self._serial_obj.close()
+        try:
+            self._serial_obj.close()
+        except Exception as e:
+            print(f"ERROR: while trying to close the serial port:\n{e}")
 
     def get_serial_ports(self):
         return serial_list_ports.comports()

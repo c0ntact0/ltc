@@ -25,7 +25,8 @@ from pprint import pformat
 log_level = [obs.LOG_DEBUG,obs.LOG_INFO,obs.LOG_WARNING,obs.LOG_ERROR]
 """Types of logs to show"""
 
-audio = pyaudio.PyAudio()
+audio = None
+time.sleep(5)
 tcObj = None
 t_tc = None # process_tc thread
 edlObj = None
@@ -427,6 +428,7 @@ def script_update(settings):
         except Exception as e:
             print_error(e)
             
+            
     if not t_tc: 
         t_tc = threading.Thread(target=process_tc_thread)
         t_tc.start()
@@ -445,8 +447,9 @@ def script_tick(seconds):
     tick_count+=1    
     
 def script_load(settings):
-    global serialPort
+    global serialPort, audio
     print_debug("script_load")
+    audio = pyaudio.PyAudio()
     if obs.obs_data_get_bool(settings,'dock_state'):
         obs_main_version = int(obs.obs_get_version_string().split('.')[0])
         print_info("OBS Version:",obs.obs_get_version_string())
@@ -693,6 +696,7 @@ def populate_list_property_with_devices_names(list_property):
         -------
             True
     """
+    print_debug("Listing audio devices.")
     audio_devices = get_audio_devices(audio)
     obs.obs_property_list_clear(list_property)
     obs.obs_property_list_add_string(list_property, "", "")
@@ -923,13 +927,21 @@ def list_to_array_t(values:list):
         
 def get_audio_devices(audio:pyaudio) -> list:
     
+    # this need to be done to PortAudio reinicialize the devices 
+    audio.terminate()
+    audio = pyaudio.PyAudio()
+    
     devices = []
-    devices_num = audio.get_device_count()
-    for i in range(devices_num):
-        device_info = audio.get_device_info_by_index(i)
-        if device_info.get('maxInputChannels') > 0:
-            devices.append(device_info)
-            #pprint(device_info)
+    try:
+        devices_num = audio.get_device_count()
+        for i in range(devices_num):
+            device_info = audio.get_device_info_by_index(i)
+            if device_info.get('maxInputChannels') > 0:
+                devices.append(device_info)
+                #pprint(device_info)
+    except Exception as e:
+        print(f"Error while trying to get audio devices:\n{e}")
+    
     return devices
 
 def get_audio_devices_names(audio:pyaudio) -> list:
@@ -983,6 +995,9 @@ def run_tc(props):
 
         obs.obs_property_set_description(p,'Stop LTC capture')
         tcObj = Tc(SAMPLE_RATE,fps)
+        
+        # TODO: for MacOS we may need pyaudio.PaMacCoreStreamInfo
+        # https://people.csail.mit.edu/hubert/pyaudio/docs/index.html#pyaudio.PaMacCoreStreamInfo
         tc_stream = audio.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=SAMPLE_RATE,channels=TC_MAX_CHANNELS,frames_per_buffer=CHUNK,stream_callback=tc_stream_callback)
         tc_running=True
         print_info("TC Capture Running...")
@@ -1200,6 +1215,7 @@ def read_from_serial():
                 print_error(e)
                 serialPort.stop()
                 serialPort.close_port()
+                break
             
             time.sleep(0.001)
     
