@@ -35,7 +35,7 @@ https://github.com/obsproject/obs-studio/releases/download/30.1.2/OBS-Studio-30.
 1. ### Install obs-ltc dependencies
 
     ```
-    python -m pip install ffmpeg-python scipy matplotlib pyserial numpy pyaudio debugpy
+    python -m pip install ffmpeg-python scipy matplotlib pyserial pyaudio debugpy
     ```
 
 1. ### Install OBS dependencies
@@ -66,8 +66,57 @@ The module matplotlib is only needed for development, while plotting WAV files, 
 
 <h2 id="macos-install">MacOS arm64</h2>
 
+**Warning!** LTC it's not fully tested on MacOS.
 
-Work in progress.
+If you have conda please get out of any environment:
+````
+conda deactivate
+````
+
+1. ### Install OBS
+    Install OBS from the https://obsproject.com
+
+1. ### Install python
+    This is needed by the OBS  
+    https://docs.python.org/3/using/mac.html
+
+    Last time I installed the version 3.11.9  
+    https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
+
+    The pip must be used with the correct python version  
+    First update pip
+
+    ```
+    python3.11 -m pip install --upgrade pip
+    ```
+1. ### Activate python in OBS
+    Open OBS and goto Tools->Scripts->Python Settings and put the following path:
+    ![](/images/obs_python_settings_mac.png)
+
+1. ### pyaudio install em Mac arm64
+    ```
+    brew uninstall portaudio
+    python3.11 -m pip uninstall pyaudio
+    arch -arm64 /opt/homebrew/bin/brew install portaudio
+    ```
+    ```
+    python3.11 -m pip install \
+    --no-cache-dir --global-option='build_ext' \
+    --global-option='-I/opt/homebrew/Cellar/portaudio/19.7.0/include' \
+    --global-option='-L/opt/homebrew/Cellar/portaudio/19.7.0/lib' pyaudio
+    ````
+
+
+1. ### Install obs-ltc dependencies
+
+    ```
+    python3.11 -m pip install ffmpeg-python scipy matplotlib pyserial
+    ```
+
+1. ### Install OBS dependencies
+    ````
+    python3.11 -m pip install jsonschema jsonref python-gitlab obspy pyyaml
+    ````   
 <br>
 
 <h2 id="ubuntu-install">Ubuntu</h2>
@@ -126,7 +175,7 @@ Work in progress.
 
 1. ### Instal Python ltc-obs dependencies
     ```
-    pip install ffmpeg-python scipy matplotlib pyserial numpy
+    pip install ffmpeg-python scipy matplotlib pyserial
     ```
 
 1. ### Install Python OBS dependencies

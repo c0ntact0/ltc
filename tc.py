@@ -1,7 +1,3 @@
-import numpy as np
-import threading
-
-
 LINE_UP = '\033[1A'
 
 class Tc:
@@ -163,7 +159,7 @@ class Tc:
         if not self._n_samples:
             self._n_samples = len(data)
         for sample in data[self._start:self._n_samples]:
-            sign = np.sign(sample)
+            sign = number_sign(sample)
             if self._first_sampler:
                 self._old_sign = sign
                 self._first_sampler = False
@@ -197,7 +193,13 @@ class Tc:
         
         print("WARNING: Invalid key error in LTC audio stream. This can compromise the LTC accuracy.")
         return 0
-    
+
+def number_sign(number):
+    if number < 0: return -1
+    elif number > 0:return 1
+
+    return number 
+
 def tc2String(tc:tuple):
     try:
         return str("{:02}".format(tc[0]) + ":" + "{:02}".format(tc[1]) + ":" + "{:02}".format(tc[2]) + ":" +"{:02}".format(tc[3]))
