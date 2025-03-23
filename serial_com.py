@@ -30,7 +30,7 @@ class SerialPort():
             self._serial_obj = serial.Serial(port,baudrate,bytesize,parity,stopbits)
             time.sleep(3) # wait for arduino init
         except serial.SerialException as e:
-            print(f'ERROR: while trying to open serial port:\n{e}')
+            print(f'ERROR: while trying to open serial port: {e}')
         else:
             print(f'INFO: Serial port {port} opened.')
 
@@ -38,7 +38,7 @@ class SerialPort():
         try:
             self._serial_obj.close()
         except Exception as e:
-            print(f"ERROR: while trying to close the serial port:\n{e}")
+            print(f"ERROR: while trying to close the serial port: {e}")
 
     def get_serial_ports(self):
         return serial_list_ports.comports()

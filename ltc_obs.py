@@ -21,66 +21,74 @@ from pprint import pformat
 # TODO: continua a dar problemas com cortes no modo timeline
 # TODO: choose if we want the current_cam as reel extension or the cut number
 
-# TODO: checkboxes to choose the log level
-log_level = [obs.LOG_DEBUG,obs.LOG_INFO,obs.LOG_WARNING,obs.LOG_ERROR]
+
+
+G = lambda: ...
+G.settings = None
+
+G.ffmpeg_path = 'ffmpeg'
+
+G.log_level = [obs.LOG_DEBUG,obs.LOG_INFO,obs.LOG_WARNING,obs.LOG_ERROR]
 """Types of logs to show"""
 
-audio = None
-time.sleep(5)
-tcObj = None
-t_tc = None # process_tc thread
-edlObj = None
-serialPort = SerialPort()
-tc_stream = None
-tc_running = False
-current_tc = (0,0,0,0)
-clip_tc=(0,0,0,0) # clip (file) start TC.
-timeline_start = 0 # timeline TC start frame
-current_timeline_frame = 0
-current_tc_frame = 0
-audio_device = {} # current pyaudio device dict
-CHUNK=24
-TC_MAX_CHANNELS=1
-TC_CHANNEL=0
-fps=25 # TC frame rate
-tick_count=0
+G.audio = None
+"""PyAudio object instance"""
+G.tcObj = None
+"""Tc object instance"""
+G.t_tc = None
+"""Thread to process the tc stream"""
+G.edlObj = None
+G.serialPort = SerialPort()
+G.tc_stream = None
+G.tc_running = False
+G.current_tc = (0,0,0,0)
+G.clip_tc=(0,0,0,0) # clip (file) start TC.
+G.timeline_start = 0 # timeline TC start frame
+G.current_timeline_frame = 0
+G.current_tc_frame = 0
+G.audio_device = {} # current pyaudio device dict
+G.tc_audio_chunk=24
+G.tc_max_channels=1
+G.tc_channel=0
+G.fps=25 # TC frame rate
+G.tick_count=0
 """Counts the ticks (frames)"""
-start_tick_count=0
+G.start_tick_count=0
 """Stores the first tick"""
-source_display=None
+G.source_display=None
 """OBS source to display the TC"""
-sources_cams = []
+G.sources_cams = []
 """OBS sources used as cam channels (Cut Sources)"""
-source_playout= None
+G.source_playout= None
 """OBS source used for playout"""
-previous_cam = None
+G.previous_cam = None
 """previous visible (selected) camera"""
-current_cam = None
+G.current_cam = None
 """Currently selected camera"""
-edl_path = os.path.expanduser("~")
+G.edl_path = os.path.expanduser("~")
 """Path to write the EDL files. Defaults to the user home path"""
-display_timeline_tc=False # Use the timeline TC insted of LTC 
+G.display_timeline_tc=False # Use the timeline TC insted of LTC 
 """Use the timeline TC instead of LTC """
-current_video_file=None
+G.current_video_file=None
 """Last video file recorded to be played out"""
-clipname = None
+G.clipname = None
 """The clipname used in the edl"""
-edl_format = 'file_32'
+G.edl_format = 'file_32'
 """The EDL format used. See what formats can be used in the output_formats dict from the edl_manager.py module"""
 # TODO: this may be added to the hotkeys callbacks
-sources_handlers = []
+G.sources_handlers = []
 """Handlers to signal the cam sources visibility"""
-lock = threading.Lock()
+G.lock = threading.Lock()
 """Lock for the LTC process thread"""
-hotkey_ids = {}
+G.hotkey_ids = {}
 """This is a dict that have the cam name as key and a tuple (hotkey_id,hotkey_callback) as value"""
-kill_all = False
+G.kill_all = False
 """If true kill all threads"""
-source_change_tc = (0,0,0,0)
+G.source_change_tc = (0,0,0,0)
 """Store the TC at when the source is changed"""
-source_change_timeline_tc = (0,0,0,0)
+G.source_change_timeline_tc = (0,0,0,0)
 """Store the timeline TC at when the source is changed"""
-invert_reel = False
+G.invert_reel = False
 """Invert the EDL reel, e.g. instead of filename.cam_name, cam_name.filename."""
 
 # print functions
@@ -88,25 +96,25 @@ def print_debug(*values:object,
              sep: str | None = " ",
              end: str | None = "\n"):
     
-    if obs.LOG_DEBUG in log_level: print("DEBUG:",*values,sep=sep,end=end)
+    if obs.LOG_DEBUG in G.log_level: print("DEBUG:",*values,sep=sep,end=end)
 
 def print_error(*values:object, 
              sep: str | None = " ",
              end: str | None = "\n"):
     
-    if obs.LOG_ERROR in log_level: print("ERROR:",*values,sep=sep,end=end)
+    if obs.LOG_ERROR in G.log_level: print("ERROR:",*values,sep=sep,end=end)
     
 def print_warning(*values:object, 
              sep: str | None = " ",
              end: str | None = "\n"):
     
-    if obs.LOG_WARNING in log_level: print("WARNING:",*values,sep=sep,end=end)
+    if obs.LOG_WARNING in G.log_level: print("WARNING:",*values,sep=sep,end=end)
     
 def print_info(*values:object, 
              sep: str | None = " ",
              end: str | None = "\n"):
     
-    if obs.LOG_INFO in log_level: print("INFO:",*values,sep=sep,end=end)
+    if obs.LOG_INFO in G.log_level: print("INFO:",*values,sep=sep,end=end)
 
 
 def get_version():
@@ -125,23 +133,23 @@ def get_version():
         return f.readline().strip("- ").strip("\n")
 
 # OBS PROPS CALLBACKS
+
+   
+def button_pressed(props,p,*args):
+    print_debug("Button pressed")
+    list_property = obs.obs_properties_get(props,'audio_device')
+    populate_list_property_with_devices_names(list_property)
+    process_audio_devices_ui(props,p,G.settings)
+
+    return True
+
 def audio_device_changed(props,p,settings):
     """
         Called when the list_devices property change. Populates the tc_audio_channel property
         with the channels from the selected device. Update the sample_rate_info property text.
     """
-    global audio_device
-    audio_device = get_audio_device_from_properties(settings)
-    max_channels=0
-    if len(audio_device):
-        max_channels = audio_device.get('maxInputChannels')
-        info = "Sample Rate: " + str(int(audio_device.get('defaultSampleRate')))
-    else:
-        info = "No info available"
-    
-    obs.obs_data_set_string(settings,'info',info)
-    p = obs.obs_properties_get(props,'tc_audio_channel')
-    populate_list_property_with_integers(p,max_channels)
+
+    process_audio_devices_ui(props,p,settings)
     
     return True
 
@@ -150,7 +158,7 @@ def timeline_start_changed(props,p,settings):
         Called when the timeline_start property change. Update the timeline_start_info property text.
     """
     p = obs.obs_properties_get(props,'timeline_start_info')
-    timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),fps)
+    timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),G.fps)
     if timeline_start:
         #print("OK")
         obs.obs_property_text_set_info_type(p,obs.OBS_TEXT_INFO_NORMAL)
@@ -164,17 +172,16 @@ def cut_sources_changed(props,p,settings):
     """
         Called when the sources_cams change. Validates the entry.
     """
-    global sources_cams
-    print_debug(f"cut_sources_changed: {sources_cams}")
+    print_debug(f"cut_sources_changed: {G.sources_cams}")
     to_remove = False
     info = ""
 
-    for cam in sources_cams:
+    for cam in G.sources_cams:
         if not get_source_by_name(cam):
             to_remove = True
             info += f"OBS source {cam} does not exist."
             break
-        elif sources_cams.count(cam) > 1:
+        elif G.sources_cams.count(cam) > 1:
             to_remove = True
             info += f"Cut source {cam} already exist."
             break
@@ -182,13 +189,13 @@ def cut_sources_changed(props,p,settings):
     if to_remove:
         #info = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {info}"
         print_error(info)
-        sources_cams.pop(-1)
-        sources_cams_t = list_to_array_t(sources_cams)
+        G.sources_cams.pop(-1)
+        sources_cams_t = list_to_array_t(G.sources_cams)
         obs.obs_data_set_array(settings,'sources_cams',sources_cams_t)
-        if len(sources_cams) > 0:
+        if len(G.sources_cams) > 0:
             add_souces_handlers()
             register_hot_keys(settings)
-            print_debug(f"hotkeys\n {pformat(hotkey_ids)}")
+            print_debug(f"hotkeys\n {pformat(G.hotkey_ids)}")
         
     obs.obs_data_set_string(settings,'sources_info',info)
 
@@ -198,10 +205,10 @@ def invert_reel_changed(props,p,settings):
     """
         Called when the invert_reel property change. Update the invert_reel_info property text.
     """
-    if invert_reel:
-        obs.obs_data_set_string(settings,'invert_reel_info',f"{current_cam}.{Edl('').date_string}")
+    if G.invert_reel:
+        obs.obs_data_set_string(settings,'invert_reel_info',f"{G.current_cam}.{Edl('').date_string}")
     else:
-        obs.obs_data_set_string(settings,'invert_reel_info',f"{Edl('').date_string}.{current_cam}")
+        obs.obs_data_set_string(settings,'invert_reel_info',f"{Edl('').date_string}.{G.current_cam}")
         
     return True
 
@@ -225,7 +232,6 @@ def script_description():
 - Press "Start Recording" to start the recorder and external LTC capture.
     """
 def script_properties():
-    global edl_path,serialPort, main_props
     print_debug("script_properties")
     
     props = obs.obs_properties_create()
@@ -258,12 +264,12 @@ def script_properties():
     populate_list_property_with_devices_names(list_devices)
         
     channels_list = obs.obs_properties_add_list(config_tc_group,"tc_audio_channel","Channel",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
-    populate_list_property_with_integers(channels_list,TC_MAX_CHANNELS)
+    populate_list_property_with_integers(channels_list,G.tc_max_channels)
     
-    obs.obs_properties_add_button(config_tc_group, "button_refresh_devices", "Refresh list of devices",
-    lambda props,p: populate_list_property_with_devices_names(list_devices))
+    button_refresh_devices = obs.obs_properties_add_button(config_tc_group, "button_refresh_devices", "Refresh list of devices",button_pressed)
 
-    obs.obs_properties_add_text(config_tc_group, "sample_rate_info", "", obs.OBS_TEXT_INFO)
+    sample_rate_info = obs.obs_properties_add_text(config_tc_group, "sample_rate_info", "", obs.OBS_TEXT_INFO)
+    obs.obs_property_set_description(sample_rate_info,"Sample Rate")
 
     list_fps = obs.obs_properties_add_list(config_tc_group,'fps',"FPS", obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_INT)
     populate_list_property_with_fps(list_fps)
@@ -297,7 +303,7 @@ def script_properties():
     invert_reel = obs.obs_properties_add_bool(config_edl_group,'invert_reel',"Invert Reel Name and Reel Extension")
     obs.obs_properties_add_text(config_edl_group,'invert_reel_info',"Reel Preview",obs.OBS_TEXT_INFO)
     
-    obs.obs_properties_add_path(config_edl_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",edl_path)
+    obs.obs_properties_add_path(config_edl_group,'edl_path','EDL export folder',obs.OBS_PATH_DIRECTORY,"",G.edl_path)
 
     # ======== Serial =========
     list_serial_port = obs.obs_properties_add_list(config_serial_group,'serial_port',"Serial Ports",obs.OBS_COMBO_TYPE_LIST,obs.OBS_COMBO_FORMAT_STRING)
@@ -307,6 +313,8 @@ def script_properties():
     # ======== Miscellaneous =========
     dock_state = obs.obs_properties_add_bool(miscellaneous_group,'dock_state',"Apply Dock State")
     obs.obs_property_set_long_description(dock_state,'Only "Scenes","Sources" and "Audio Mixer" docks are loaded at startup.')
+    
+    obs.obs_properties_add_text(miscellaneous_group,'ffmpeg_path',"FFmpeg Path",obs.OBS_TEXT_DEFAULT)
     
     # ======== Logging =========
     obs.obs_properties_add_bool(logging_group,'log_info',"Log Info Messages")
@@ -319,21 +327,25 @@ def script_properties():
     obs.obs_property_set_modified_callback(timeline_start, timeline_start_changed)
     obs.obs_property_set_modified_callback(sources_prop,cut_sources_changed)
     obs.obs_property_set_modified_callback(invert_reel,invert_reel_changed)
+    
+    obs.obs_property_set_modified_callback(button_refresh_devices,button_pressed)
+    
+    
    
    # This must be here because we need the Cut Sources values to get the current cam number
-    if serialPort.is_open:
+    if G.serialPort.is_open:
         _,cam_number = get_current_cam_name()
         write_to_serial(cam_number)
-        write_to_serial(len(sources_cams),'N')
+        write_to_serial(len(G.sources_cams),'N')
 
-
+    obs.obs_properties_apply_settings(props, G.settings)
     return props
 
 def script_defaults(settings):
     print_debug("script_defaults")
 
     obs.obs_data_set_default_string(settings, "audio_device", "")
-    obs.obs_data_set_default_string(settings, "sample_rate_info", "Sample Rate: NA")
+    obs.obs_data_set_default_string(settings, "sample_rate_info", "NA")
     obs.obs_data_set_default_string(settings, "clipname", "")
     
     # TODO: error when reloading the script or getting defaults
@@ -360,10 +372,11 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
     obs.obs_data_set_default_string(settings,'sources_info',"")
     obs.obs_data_set_default_string(settings,'edl_format',"file_32")
-    obs.obs_data_set_default_string(settings,'invert_sources_info',f"{Edl('').date_string}.{current_cam}")
+    obs.obs_data_set_default_string(settings,'invert_sources_info',f"{Edl('').date_string}.{G.current_cam}")
     obs.obs_data_set_default_string(settings,'edl_path',os.path.expanduser("~"))
     obs.obs_data_set_default_bool(settings,'dock_state',True)
     obs.obs_data_set_default_string(settings,'serial_port',"")
+    obs.obs_data_set_default_string(settings,'ffmpeg_path',"ffmpeg")
 
     obs.obs_data_set_default_bool(settings,'log_info',True)
     obs.obs_data_set_default_bool(settings,'log_warning',True)
@@ -371,57 +384,57 @@ def script_defaults(settings):
     obs.obs_data_set_default_bool(settings,'log_debug',True)
 
 def script_update(settings):
-    global audio_device,fps,source_display,sources_cams,source_playout,timeline_start,edl_path,current_cam, \
-        display_timeline_tc,clipname,hotkey_ids, t_tc, CHUNK, edl_format, TC_CHANNEL, TC_MAX_CHANNELS, log_level, invert_reel
-    
+   
     print_debug("script_update")
-    clipname = obs.obs_data_get_string(settings,'clipname')
-    audio_device = get_audio_device_from_properties(settings)
+
+    G.ffmpeg_path = obs.obs_data_get_string(settings,'ffmpeg_path')
+    G.clipname = obs.obs_data_get_string(settings,'clipname')
+    G.audio_device = get_audio_device_from_properties(settings)
     try:
-        TC_MAX_CHANNELS = int(audio_device.get('maxInputChannels',1))
+        G.tc_max_channels = int(G.audio_device.get('maxInputChannels',1))
     except TypeError:
         print_warning("No audio device for LTC.")
         
-    TC_CHANNEL = obs.obs_data_get_int(settings,'tc_audio_channel')
-    fps = obs.obs_data_get_int(settings,'fps')
-    CHUNK = obs.obs_data_get_int(settings,'slider_chunk')
-    source_display = obs.obs_data_get_string(settings,'source_display')
-    source_playout = obs.obs_data_get_string(settings,'source_playout')
-    display_timeline_tc = obs.obs_data_get_bool(settings,'display_timeline_tc')
+    G.tc_channel = obs.obs_data_get_int(settings,'tc_audio_channel')
+    G.fps = obs.obs_data_get_int(settings,'fps')
+    G.tc_audio_chunk = obs.obs_data_get_int(settings,'slider_chunk')
+    G.source_display = obs.obs_data_get_string(settings,'source_display')
+    G.source_playout = obs.obs_data_get_string(settings,'source_playout')
+    G.display_timeline_tc = obs.obs_data_get_bool(settings,'display_timeline_tc')
     try:
         sources_cams_array = obs.obs_data_get_array(settings,"sources_cams")
-        sources_cams = array_t_to_list(sources_cams_array)
-        print_debug(f"Cut sources {sources_cams}")
+        G.sources_cams = array_t_to_list(sources_cams_array)
+        print_debug(f"Cut sources {G.sources_cams}")
         obs.obs_data_array_release(sources_cams_array)
     except:
         print_error("Please choose cut sources")
     
     # this is needed for the script reload from OBS GUI
-    if len(sources_cams) > 0:
+    if len(G.sources_cams) > 0:
         add_souces_handlers()
         register_hot_keys(settings)
-        print_debug(f"hotkeys\n {pformat(hotkey_ids)}")
+        print_debug(f"hotkeys\n {pformat(G.hotkey_ids)}")
 
     
     # just for testing
-    timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),fps)
-    if timeline_start:
-        timeline_start = tc.tc2frames(timeline_start,fps)
+    G.timeline_start = tc.string2tc(obs.obs_data_get_string(settings,'timeline_start'),G.fps)
+    if G.timeline_start:
+        G.timeline_start = tc.tc2frames(G.timeline_start,G.fps)
         obs.obs_data_set_string(settings,'timeline_start_info',"TC format: hh:mm:ss:ff")
     else:
-        timeline_start = 0
+        G.timeline_start = 0
         obs.obs_data_set_string(settings,'timeline_start_info',"Format error, must be: hh:mm:ss:ff")
         
-    edl_format = obs.obs_data_get_string(settings,'edl_format')
-    invert_reel = obs.obs_data_get_bool(settings,'invert_reel')
-    edl_path = obs.obs_data_get_string(settings,'edl_path')
-    current_cam,cam_number = get_current_cam_name()
+    G.edl_format = obs.obs_data_get_string(settings,'edl_format')
+    G.invert_reel = obs.obs_data_get_bool(settings,'invert_reel')
+    G.edl_path = obs.obs_data_get_string(settings,'edl_path')
+    G.current_cam,_ = get_current_cam_name()
     
-    if not serialPort.is_open:
+    if not G.serialPort.is_open:
         try:
-            serialPort.inicialize_port(obs.obs_data_get_string(settings,'serial_port'))
+            G.serialPort.inicialize_port(obs.obs_data_get_string(settings,'serial_port'))
 
-            if serialPort.is_open:
+            if G.serialPort.is_open:
                 #TODO: replace with timer, or not :-)
                 t = threading.Thread(target=read_from_serial)
                 t.start()
@@ -429,27 +442,29 @@ def script_update(settings):
             print_error(e)
             
             
-    if not t_tc: 
-        t_tc = threading.Thread(target=process_tc_thread)
-        t_tc.start()
+    if not G.t_tc: 
+        G.t_tc = threading.Thread(target=process_tc_thread)
+        G.t_tc.start()
 
     # Logging
-    log_level.clear()
-    if obs.obs_data_get_bool(settings,'log_info'): log_level.append(obs.LOG_INFO)
-    if obs.obs_data_get_bool(settings,'log_warning'): log_level.append(obs.LOG_WARNING)
-    if obs.obs_data_get_bool(settings,'log_error'): log_level.append(obs.LOG_ERROR)
-    if obs.obs_data_get_bool(settings,'log_debug'): log_level.append(obs.LOG_DEBUG)
+    G.log_level.clear()
+    if obs.obs_data_get_bool(settings,'log_info'): G.log_level.append(obs.LOG_INFO)
+    if obs.obs_data_get_bool(settings,'log_warning'): G.log_level.append(obs.LOG_WARNING)
+    if obs.obs_data_get_bool(settings,'log_error'): G.log_level.append(obs.LOG_ERROR)
+    if obs.obs_data_get_bool(settings,'log_debug'): G.log_level.append(obs.LOG_DEBUG)
         
     print_info("Current Profile:",obs.obs_frontend_get_current_profile())
+    
+    G.settings = settings
 
 def script_tick(seconds):
-    global tick_count
-    tick_count+=1    
+    G.tick_count+=1    
     
 def script_load(settings):
-    global serialPort, audio
+    
+    G.settings = settings
     print_debug("script_load")
-    audio = pyaudio.PyAudio()
+    G.audio = pyaudio.PyAudio()
     if obs.obs_data_get_bool(settings,'dock_state'):
         obs_main_version = int(obs.obs_get_version_string().split('.')[0])
         print_info("OBS Version:",obs.obs_get_version_string())
@@ -465,26 +480,27 @@ def script_load(settings):
 
 
 def script_unload():
-    global tc_running,tc_stream,tcObj,edlObj,audio,serialPort, kill_all,props
+   
     print_debug("script_unload")
-    kill_all = True
+    G.kill_all = True
     time.sleep(0.5)
     #obs.timer_remove(process_tc_thread)
-    if tc_running:
-        tc_stream.close()
+    if G.tc_running:
+        G.tc_stream.close()
 
-    if audio:
-        audio.terminate()
+    if G.audio:
+        G.audio.terminate()
 
-    if serialPort.running:
-        serialPort.stop()
-        serialPort.close_port()
+    if G.serialPort.running:
+        G.serialPort.stop()
+        G.serialPort.close_port()
     
-    if tcObj: del tcObj
-    if edlObj: del edlObj
+    if G.tcObj: del G.tcObj
+    if G.edlObj: del G.edlObj
         
 def script_save(settings):
     save_hotkeys(settings)
+    G.settings = settings
     
 
 # HOT_KEYS
@@ -497,33 +513,32 @@ def register_hot_keys(settings):
         settings: obs_data_t
             OBS settings object
     """
-    global hotkey_ids
 
     # Removes callbacks and hotkeys for removed source cams
     removed_cams = []
-    for cam,hotkey_id in hotkey_ids.items():
-        if cam not in sources_cams:
+    for cam,hotkey_id in G.hotkey_ids.items():
+        if cam not in G.sources_cams:
             f_name = f"hotkey_id_{cam.lower()}_callback"
             obs.obs_hotkey_unregister(hotkey_id[1])
             removed_cams.append(cam)
             print_debug(f"hotkey_id {cam} and {f_name} callback removed")
     for cam in removed_cams:
-        hotkey_ids.pop(cam)
+        G.hotkey_ids.pop(cam)
     
     # Register hotkeys for new source cam
-    for cam in sources_cams:
-        if cam not in hotkey_ids.keys():
+    for cam in G.sources_cams:
+        if cam not in G.hotkey_ids.keys():
             description = f"Select {cam}"
 
-            current_hotkey_id = len(hotkey_ids)+1        
+            current_hotkey_id = len(G.hotkey_ids)+1        
             f_name = f"hotkey_id_{current_hotkey_id}_callback"
             code = f"def {f_name}(pressed):\n    if pressed:\n        set_current_cam({current_hotkey_id})\n        write_to_serial({current_hotkey_id})"
             x = compile(code,'callback','single')
             exec(x)
 
-            hotkey_ids[cam] = (obs.obs_hotkey_register_frontend(cam,description, eval(f_name)),eval(f_name))
+            G.hotkey_ids[cam] = (obs.obs_hotkey_register_frontend(cam,description, eval(f_name)),eval(f_name))
             hotkey_save_array = obs.obs_data_get_array(settings, f"hotkey_{cam}")
-            obs.obs_hotkey_load(hotkey_ids[cam][0], hotkey_save_array)
+            obs.obs_hotkey_load(G.hotkey_ids[cam][0], hotkey_save_array)
             obs.obs_data_array_release(hotkey_save_array)
 
     save_hotkeys(settings)
@@ -538,7 +553,7 @@ def save_hotkeys(settings):
             OBS settings object
     """
     print_debug("Saving hotkeys")
-    for k,v in hotkey_ids.items():
+    for k,v in G.hotkey_ids.items():
         hotkey_save_array = obs.obs_hotkey_save(v[0])
         obs.obs_data_set_array(settings, f"hotkey_{k}", hotkey_save_array)
         obs.obs_data_array_release(hotkey_save_array)
@@ -548,20 +563,19 @@ def add_souces_handlers():
     """
         Connect the signal handlers for the show signal to the sources_callback callback function.  
     """
-    global sources_handlers,sources_cams
     print_debug("Configuring source handlers")
 
-    for h in sources_handlers:
+    for h in G.sources_handlers:
         obs.signal_handler_disconnect(h,"show",sources_callback)
     
-    sources_handlers.clear()
+    G.sources_handlers.clear()
 
-    for cam in sources_cams:
+    for cam in G.sources_cams:
         print_debug(f"Configuring handler for {cam}")
         source = obs.obs_get_source_by_name(cam)
         sh = obs.obs_source_get_signal_handler(source)
         obs.signal_handler_connect(sh,"show",sources_callback)
-        sources_handlers.append(sh)
+        G.sources_handlers.append(sh)
         obs.obs_source_release(source)
 
 def remove_source_handlers():
@@ -569,7 +583,7 @@ def remove_source_handlers():
         Disconnect the signal handlers for the show signal from the sources_callback callback function.  
     """
     print_debug("Removing source handlers.")
-    for h in sources_handlers:
+    for h in G.sources_handlers:
         obs.signal_handler_disconnect(h,"show",sources_callback)    
 
 def sources_callback(calldata):
@@ -581,13 +595,12 @@ def sources_callback(calldata):
         calldata: calldata_t
             Data from the connected object
     """
-    global current_cam, source_change_tc,source_change_timeline_tc
     source = obs.calldata_source(calldata,"source")
-    current_cam = obs.obs_source_get_name(source)
-    print_debug(f"Current cam is {current_cam}")
-    source_change_tc = current_tc
-    source_change_timeline_tc = tc.frames2tc(timeline_start + tc.tc2frames(current_tc,fps) - tc.tc2frames(clip_tc,fps),fps)
-    if tc_running:  print_debug(f"Current TC:{tc.tc2String(current_tc)} {tc.tc2String(source_change_timeline_tc) if display_timeline_tc else tc.tc2String(current_tc)}")
+    G.current_cam = obs.obs_source_get_name(source)
+    print_debug(f"Current cam is {G.current_cam}")
+    G.source_change_tc = G.current_tc
+    G.source_change_timeline_tc = tc.frames2tc(G.timeline_start + tc.tc2frames(G.current_tc,G.fps) - tc.tc2frames(G.clip_tc,G.fps),G.fps)
+    if G.tc_running:  print_debug(f"Current TC:{tc.tc2String(G.current_tc)} {tc.tc2String(G.source_change_timeline_tc) if G.display_timeline_tc else tc.tc2String(G.current_tc)}")
 
 
 def on_frontend_event(e):
@@ -599,18 +612,17 @@ def on_frontend_event(e):
         e: obs_frontend_event
             The event type.
     """
-    global edlObj,current_timeline_frame,timeline_start, fps,tcObj,clip_tc,tc_running,tc_stream,tcObj,audio,serialPort, kill_all,tick_count
     if e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTING:
         print_info("Recording Starting...")
-        clip_tc = (0,0,0,0)
-        edlObj = Edl(clipname)
+        G.clip_tc = (0,0,0,0)
+        G.edlObj = Edl(G.clipname)
         config = obs.obs_frontend_get_profile_config()
-        obs.config_set_string(config, "Output","FilenameFormatting", edlObj.date_string)
+        obs.config_set_string(config, "Output","FilenameFormatting", G.edlObj.date_string)
         
         #edlObj.add_cut_in(current_cam,current_cam,mark_tc_string,mark_timeline_tc_string)
     elif e == obs.OBS_FRONTEND_EVENT_RECORDING_STARTED:
         print_info("Recording Started...")
-        tick_count=0
+        G.tick_count=0
         #obs.obs_properties_apply_settings(props,settings_g)
         
     elif e == obs.OBS_FRONTEND_EVENT_RECORDING_STOPPED:
@@ -632,7 +644,6 @@ def record_control(probs):
         probs: obs_properties_t
             The OBS props object
     """
-    global current_timeline_frame,timeline_start, fps,tcObj, edlObj
     recording = obs.obs_frontend_recording_active()
     bt_rec = obs.obs_properties_get(probs,'button_record_control')
     bt_tc = obs.obs_properties_get(probs,'button_run_tc')
@@ -651,11 +662,11 @@ def record_control(probs):
             print_warning(f"Recording path {video_path} does not exist.")
             return True
         set_current_scene("RECORD") #TODO: escolher no script
-        if not tc_running:
+        if not G.tc_running:
             run_tc(probs)
             time.sleep(1)
-        current_timeline_frame = timeline_start
-        current_tc_string = tc.tc2String(tc.frames2tc(timeline_start,fps)) if display_timeline_tc else tcObj.currentTcString
+        G.current_timeline_frame = G.timeline_start
+        current_tc_string = tc.tc2String(tc.frames2tc(G.timeline_start,G.fps)) if G.display_timeline_tc else G.tcObj.currentTcString
         process_tc_display(current_tc_string)
         obs.obs_property_set_description(bt_rec,'Stop Recording')
         obs.obs_property_set_enabled(bt_tc,False)
@@ -681,7 +692,7 @@ def get_audio_device_from_properties(settings):
     index_exists = len(index_string) > 0
     #print(index_exists)
     index = -1 if not index_exists else int(index_string)
-    return {} if not index_exists else audio.get_device_info_by_index(index)
+    return {} if not index_exists else G.audio.get_device_info_by_index(index)
 
 def populate_list_property_with_devices_names(list_property):
     """
@@ -697,11 +708,12 @@ def populate_list_property_with_devices_names(list_property):
             True
     """
     print_debug("Listing audio devices.")
-    audio_devices = get_audio_devices(audio)
+    audio_devices = get_audio_devices(G.audio)
     obs.obs_property_list_clear(list_property)
     obs.obs_property_list_add_string(list_property, "", "")
     for device in audio_devices:
       obs.obs_property_list_add_string(list_property, f"{device.get('name')} | Channels: {device.get('maxInputChannels')}" , str(device.get('index')))
+      
     #obs.source_list_release(audio_devices)
     
     return True
@@ -805,7 +817,7 @@ def populate_list_property_with_serial_ports(list_property):
         list_property: obs_property_t
             The list property to populate
     """
-    serial_ports = serialPort.get_serial_ports()
+    serial_ports = G.serialPort.get_serial_ports()
     obs.obs_property_list_clear(list_property)
     for port,desc,hwid in serial_ports:
         obs.obs_property_list_add_string(list_property,desc,port)
@@ -850,33 +862,30 @@ def get_current_cam_name():
     Retuns:
         cam name, cam number
     """
-    global sources_cams
            
-    for i in range(len(sources_cams)):
-        source = obs.obs_get_source_by_name(sources_cams[i])
+    for i in range(len(G.sources_cams)):
+        source = obs.obs_get_source_by_name(G.sources_cams[i])
         if obs.obs_source_active(source):
             obs.obs_source_release(source)
-            return sources_cams[i],i+1
+            return G.sources_cams[i],i+1
         obs.obs_source_release(source)
 
     return None,0
 
 def set_current_cam(cam_number:int):
     """
-    cam_number is a number from 1 to max number of cameras
+        cam_number is a number from 1 to max number of cameras
     """
-    global sources_cams
-
     idx = cam_number-1
     if idx < 0:
         return
     
-    for i in range(len(sources_cams)):
+    for i in range(len(G.sources_cams)):
         #print(sources_cams[i])
         current_scene_as_source = obs.obs_frontend_get_current_scene()
         if current_scene_as_source:
             current_scene = obs.obs_scene_from_source(current_scene_as_source)
-            scene_item = obs.obs_scene_find_source_recursive(current_scene, sources_cams[i])
+            scene_item = obs.obs_scene_find_source_recursive(current_scene, G.sources_cams[i])
             if scene_item:
                 obs.obs_sceneitem_set_visible(scene_item,i == idx)
             obs.obs_source_release(current_scene_as_source)
@@ -924,6 +933,19 @@ def list_to_array_t(values:list):
     return array_t
 
 # PYAUDIO FUNCTIONS
+def process_audio_devices_ui(props,p,settings):
+    
+    G.audio_device = get_audio_device_from_properties(settings)
+    max_channels=0
+    if len(G.audio_device):
+        max_channels = G.audio_device.get('maxInputChannels')
+        info = f"{G.audio_device.get('defaultSampleRate')}"# str(int(audio_device.get('defaultSampleRate')))
+    else:
+        info = "NA"
+    
+    obs.obs_data_set_string(settings,'sample_rate_info',info)
+    p = obs.obs_properties_get(props,'tc_audio_channel')
+    populate_list_property_with_integers(p,max_channels)
         
 def get_audio_devices(audio:pyaudio) -> list:
     
@@ -963,50 +985,48 @@ def get_audio_device_by_name(name:str,audio:pyaudio) -> int:
 
 
 def run_tc(props):
-    global audio_device, tc_stream, tc_running,tcObj,TC_MAX_CHANNELS
     p = obs.obs_properties_get(props,'button_run_tc')
-    if tc_running:
+    if G.tc_running:
         obs.obs_property_set_description(p,'Start LTC capture')
-        if tc_stream:
-            tc_stream.close()
-            tcObj = None
-        tc_running=False
+        if G.tc_stream:
+            G.tc_stream.close()
+            G.tcObj = None
+        G.tc_running=False
         print_info("TC Capture Stopped...")
 
     else:
         print_info("=============================================")
         print_info("Selected Audio Device")
-        pprint(audio_device)
+        pprint(G.audio_device)
         print_info("---------------------------------------------")
-        print_info(f"Buffer Size: {CHUNK}")
+        print_info(f"Buffer Size: {G.tc_audio_chunk}")
         print_info("=============================================")
         FORMAT=pyaudio.paInt24
-        TC_MAX_CHANNELS = int(audio_device.get('maxInputChannels'))
+        G.tc_max_channels = int(G.audio_device.get('maxInputChannels'))
         try:
-            SAMPLE_RATE = int(audio_device.get('defaultSampleRate'))
+            SAMPLE_RATE = int(G.audio_device.get('defaultSampleRate'))
         except TypeError as e:
             print_error(f"Can't get sample rate from the audio device.")
             return True
         try:
-            DEVICE_INDEX = int(audio_device.get('index'))
+            DEVICE_INDEX = int(G.audio_device.get('index'))
         except TypeError as e:
             print_error(f"Can't get device index from the audio device.")
             return True
 
         obs.obs_property_set_description(p,'Stop LTC capture')
-        tcObj = Tc(SAMPLE_RATE,fps)
+        G.tcObj = Tc(SAMPLE_RATE,G.fps)
         
         # TODO: for MacOS we may need pyaudio.PaMacCoreStreamInfo
         # https://people.csail.mit.edu/hubert/pyaudio/docs/index.html#pyaudio.PaMacCoreStreamInfo
-        tc_stream = audio.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=SAMPLE_RATE,channels=TC_MAX_CHANNELS,frames_per_buffer=CHUNK,stream_callback=tc_stream_callback)
-        tc_running=True
+        G.tc_stream = G.audio.open(format=FORMAT,input=True,input_device_index=DEVICE_INDEX,rate=SAMPLE_RATE,channels=G.tc_max_channels,frames_per_buffer=G.tc_audio_chunk,stream_callback=tc_stream_callback)
+        G.tc_running=True
         print_info("TC Capture Running...")
         
     return True
 
 def process_tc_display(tc_string):
-    global source_display
-    source_tc = obs.obs_get_source_by_name(source_display)
+    source_tc = obs.obs_get_source_by_name(G.source_display)
 
     if source_tc:
         # does not process if the source is hidden
@@ -1018,8 +1038,7 @@ def process_tc_display(tc_string):
         obs.obs_source_release(source_tc)
 
 def set_playout_source(filename:str):
-    global source_playout
-    source = obs.obs_get_source_by_name(source_playout)
+    source = obs.obs_get_source_by_name(G.source_playout)
     if source:
         settings = obs.obs_data_create()
         #settings = obs.obs_source_get_settings(source)
@@ -1033,7 +1052,6 @@ def set_playout_source(filename:str):
         obs.obs_source_release(source)
 
 def apply_ffmpeg_rewrap(reel:str):
-    global current_video_file
     config = obs.obs_frontend_get_profile_config()
     rec_type = obs.config_get_string(config,"AdvOut","RecType")
     ff_extension = "." +  obs.config_get_string(config,"AdvOut","FFExtension")
@@ -1064,14 +1082,14 @@ def apply_ffmpeg_rewrap(reel:str):
     (
         ffmpeg.input(video_filename_renamed)
         .output(video_filename,c='copy',
-                timecode=tc.tc2String(clip_tc),
+                timecode=tc.tc2String(G.clip_tc),
                 movflags='use_metadata_tags',
                 map_metadata=0,
                 metadata='name='+reel
-                ).run()
+                ).run(cmd=G.ffmpeg_path)
     )
     os.remove(video_filename_renamed)
-    current_video_file=video_filename
+    G.current_video_file=video_filename
     #pprint(ffmpeg.probe(video_filename))
     
     print_info("Rewrap applied")
@@ -1079,55 +1097,54 @@ def apply_ffmpeg_rewrap(reel:str):
     set_playout_source(video_filename)
 
 def process_tc_thread(): # this start in script_update
-    global lock, current_tc,current_tc_frame,previous_cam,current_cam,timeline_start, \
-    current_timeline_frame,fps,edlObj,edl_path,display_timeline_tc,clip_tc,clipname
+
     #print_debug("Using running LTC for cuts.")
     while True:
-        if kill_all:
+        if G.kill_all:
             break
         start = time.perf_counter()
-        with lock:
-            if tc_running:
+        with G.lock:
+            if G.tc_running:
 
                 recording = obs.obs_frontend_recording_active()
-                if recording and not edlObj:
+                if recording and not G.edlObj:
                     print_warning("We have a problem. OBS is recording but no edl object it's created.")
                     return
-                previous_tc_frames = tc.tc2frames(current_tc,fps)
-                current_tc = tcObj.currentTc
-                current_tc_frame = tc.tc2frames(current_tc,fps)
-                diff_frames = current_tc_frame - previous_tc_frames
+                previous_tc_frames = tc.tc2frames(G.current_tc,G.fps)
+                G.current_tc = G.tcObj.currentTc
+                G.current_tc_frame = tc.tc2frames(G.current_tc,G.fps)
+                diff_frames = G.current_tc_frame - previous_tc_frames
 
                 if diff_frames > 1:
-                    print_debug(f"Missing {diff_frames-1} frames. Try to decrease the buffer (current: {CHUNK} bytes")
+                    print_debug(f"Missing {diff_frames-1} frames. Try to decrease the buffer (current: {G.tc_audio_chunk} bytes")
                 elif diff_frames < 0:
-                    print_debug(f"Missing {diff_frames-1} frames. Try to increase the buffer (current: {CHUNK} bytes")
+                    print_debug(f"Missing {diff_frames-1} frames. Try to increase the buffer (current: {G.tc_audio_chunk} bytes")
 
-                timeline_tc_string = tc.tc2String(tc.frames2tc(current_timeline_frame,fps))
-                current_tc_string = tc.tc2String(current_tc)
-                if not current_cam:
-                    current_cam,_ = get_current_cam_name()
-                new_cam = current_cam != previous_cam
+                timeline_tc_string = tc.tc2String(tc.frames2tc(G.current_timeline_frame,G.fps))
+                current_tc_string = tc.tc2String(G.current_tc)
+                if not G.current_cam:
+                    G.current_cam,_ = get_current_cam_name()
+                new_cam = G.current_cam != G.previous_cam
                 if new_cam:
-                    previous_cam = current_cam
+                    G.previous_cam = G.current_cam
                 
-                mark_tc_string = tc.tc2String(source_change_tc) #tc.tc2String(tc.frames2tc(current_tc_frame,fps))
-                mark_timeline_tc_string = tc.tc2String(source_change_timeline_tc) if display_timeline_tc else mark_tc_string
+                mark_tc_string = tc.tc2String(G.source_change_tc) #tc.tc2String(tc.frames2tc(current_tc_frame,fps))
+                mark_timeline_tc_string = tc.tc2String(G.source_change_timeline_tc) if G.display_timeline_tc else mark_tc_string
 
-                if edlObj:
-                    file_reel = edlObj.date_string
-                    if recording and edlObj.cut_counter == 0: #not edlObj:
+                if G.edlObj:
+                    file_reel = G.edlObj.date_string
+                    if recording and G.edlObj.cut_counter == 0: #not edlObj:
                         #timeline_tc_string = tc.tc2String(tc.frames2tc(timeline_start,fps))
-                        clip_tc = current_tc
-                        edlObj.add_cut_in(
+                        G.clip_tc = G.current_tc
+                        G.edlObj.add_cut_in(
                             file_reel,
                             file_reel,
                             current_tc_string,
-                            tc.tc2String(tc.frames2tc(timeline_start,fps)) if display_timeline_tc else current_tc_string,
-                            current_cam,
-                            invert_reel)
-                        print_info("MARK:",current_tc_string,timeline_tc_string,current_cam)
-                    elif new_cam and recording and edlObj.cut_counter > 0:
+                            tc.tc2String(tc.frames2tc(G.timeline_start,G.fps)) if G.display_timeline_tc else current_tc_string,
+                            G.current_cam,
+                            G.invert_reel)
+                        print_info("MARK:",current_tc_string,timeline_tc_string,G.current_cam)
+                    elif new_cam and recording and G.edlObj.cut_counter > 0:
                         #edlObj.add_cut_out(
                         #    mark_tc_string,
                         #    mark_timeline_tc_string)
@@ -1138,38 +1155,38 @@ def process_tc_thread(): # this start in script_update
                         #    mark_timeline_tc_string,
                         #    current_cam)
                         #print_info("MARK:",current_tc_string,timeline_tc_string,current_cam)
-                        t_cut = threading.Thread(target=add_cut_callback,args=(edlObj,file_reel,file_reel,mark_tc_string,mark_timeline_tc_string,current_cam,invert_reel))
+                        t_cut = threading.Thread(target=add_cut_callback,args=(G.edlObj,file_reel,file_reel,mark_tc_string,mark_timeline_tc_string,G.current_cam,G.invert_reel))
                         t_cut.start()
-                    elif not new_cam and not recording and edlObj.cut_counter > 0:
-                        mark_timeline_tc_string = tc.tc2String(tc.frames2tc(timeline_start + tick_count,fps)) if display_timeline_tc else tc.tc2String(tc.frames2tc(tc.tc2frames(clip_tc,fps) + tick_count,fps))
-                        edlObj.add_cut_out(
+                    elif not new_cam and not recording and G.edlObj.cut_counter > 0:
+                        mark_timeline_tc_string = tc.tc2String(tc.frames2tc(G.timeline_start + G.tick_count,G.fps)) if G.display_timeline_tc else tc.tc2String(tc.frames2tc(tc.tc2frames(G.clip_tc,G.fps) + G.tick_count,G.fps))
+                        G.edlObj.add_cut_out(
                             current_tc_string,
                             mark_timeline_tc_string)
-                        print_info("MARK:",current_tc_string,mark_timeline_tc_string,current_cam)
-                        edlObj.save_avid_edl(edl_path,fps,file_reel+'.edl',clipname)
-                        edlObj = None
+                        print_info("MARK:",current_tc_string,mark_timeline_tc_string,G.current_cam)
+                        G.edlObj.save_avid_edl(G.edl_path,G.fps,file_reel+'.edl',G.clipname)
+                        G.edlObj = None
                         # This is necessary to apply the TC to the file
                         t = threading.Thread(target=apply_ffmpeg_rewrap,args=(file_reel,))
                         t.start()
-                        print_info(f"Last cut: tick count {tick_count}")
+                        print_info(f"Last cut: tick count {G.tick_count}")
                     else:
                         pass
                     
-                if display_timeline_tc and recording:
+                if G.display_timeline_tc and recording:
                     process_tc_display(timeline_tc_string)
                 else:
                     process_tc_display(current_tc_string)  
 
                 if recording:
-                    current_timeline_frame = timeline_start + tc.tc2frames(current_tc,fps) - tc.tc2frames(clip_tc,fps)
+                    G.current_timeline_frame = G.timeline_start + tc.tc2frames(G.current_tc,G.fps) - tc.tc2frames(G.clip_tc,G.fps)
                 else:
-                    current_timeline_frame = timeline_start
+                    G.current_timeline_frame = G.timeline_start
 
 
             delta = time.perf_counter() - start
-            if delta > 1/fps:
+            if delta > 1/G.fps:
                 print_warning(f"Processing time excedes FPS: {delta}")          
-        time.sleep(1/(fps*2))
+        time.sleep(1/(G.fps*2))
     
     print_debug("process_tc_thread terminated")
     
@@ -1190,38 +1207,36 @@ def add_cut_callback(edlObj:Edl,
     
 
 def tc_stream_callback(in_data, frame_count, time_info, status):
-    if tc_running:
-        int_values = tcObj.bytes2ints(in_data[TC_CHANNEL::TC_MAX_CHANNELS])
-        tcObj.process_line_code(int_values,to_console=False)
+    if G.tc_running:
+        int_values = G.tcObj.bytes2ints(in_data[G.tc_channel::G.tc_max_channels])
+        G.tcObj.process_line_code(int_values,to_console=False)
         #process_tc_thread()
     
     return (in_data, pyaudio.paContinue)
 
 # SERIAL
 def read_from_serial():
-    global serialPort
     
-    if serialPort.is_open:
-        if not serialPort.running:
-            serialPort.start()
-        while serialPort.running:
-            serialPort.serial_obj.timeout = None
+    if G.serialPort.is_open:
+        if not G.serialPort.running:
+            G.serialPort.start()
+        while G.serialPort.running:
+            G.serialPort.serial_obj.timeout = None
             try:
-                serial_msg = serialPort.serial_obj.read().decode('utf-8')
+                serial_msg = G.serialPort.serial_obj.read().decode('utf-8')
                 print_debug(f"Serial Msg: {serial_msg}")
                 if serial_msg.isdigit():
                     set_current_cam(int(serial_msg))
             except Exception as e:
                 print_error(e)
-                serialPort.stop()
-                serialPort.close_port()
+                G.serialPort.stop()
+                G.serialPort.close_port()
                 break
             
             time.sleep(0.001)
     
 def write_to_serial(number,msg:str='C'):
-    global serialPort
-    if serialPort.is_open:
+    if G.serialPort.is_open:
         bytes2write = bytearray(msg+str(number),'utf-8')
         #print(bytes2write,number)
-        serialPort.serial_obj.write(bytes2write)
+        G.serialPort.serial_obj.write(bytes2write)

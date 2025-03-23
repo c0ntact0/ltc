@@ -5,8 +5,9 @@
 import pyaudio  
 import wave
 from pprint import pprint
+import os
+print("PYTHONPATH",os.environ['PYTHONPATH'])
 from tc import Tc
-import numpy as np
 
 #CHANNELS = 2 # number of channels that the device have
 CHANNEL = 0 # channel to use

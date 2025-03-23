@@ -117,7 +117,14 @@ conda deactivate
 1. ### Install OBS dependencies
     ````
     python3.11 -m pip install jsonschema jsonref python-gitlab obspy pyyaml
-    ````   
+    ````
+
+1. ### Install FFMpeg
+    FFMpeg is needed to rewrap the media files with the correct start time code.
+    https://ffmpeg.org/download.html#build-mac
+    <br>
+    
+    Don't forget to add your FFMpeg binaries location to the PATH environment variable. 
 <br>
 
 <h3 id="mac-ltc-generator">Timecode Clock generator for MacOS</h3>
